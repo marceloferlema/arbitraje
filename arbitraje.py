@@ -1,3 +1,4 @@
+import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -20,6 +21,14 @@ TICKERS = TICKERS.split(",") if TICKERS else []
 UMBRAL_VARIACION = 1.0  # En porcentaje
 INTERVALO_MINUTOS = 1
 
+access_token = None
+refresh_token = None
+token_lock = threading.Lock()
+
+def get_token():
+    with token_lock:
+        return access_token
+    
 def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {
@@ -40,21 +49,45 @@ def obtener_token():
     }
     r = requests.post(url, data=data)
     r.raise_for_status()
-    return r.json()["access_token"]
+    response = r.json()
+    return response["access_token"], response["refresh_token"]
+
+def refrescar_token(refresh_token):
+    url = "https://api.invertironline.com/token"
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token
+    }
+    r = requests.post(url, data=data)
+    r.raise_for_status()
+    response = r.json()
+    return response["access_token"], response["refresh_token"]
 
 # === FUNCIONES DE CONSULTA ===
-def obtener_precio(simbolo, token):
-    url = f"https://api.invertironline.com/api/{MERCADO}/Titulos/{simbolo}/Cotizacion?model.mercado={MERCADO}&model.plazo=t0&model.simbolo={simbolo}"
-    headers = {"Authorization": f"Bearer {token}"}
-    r = requests.get(url, headers=headers)
-    r.raise_for_status()
-    t0 = r.json()["ultimoPrecio"]
+def obtener_precio(simbolo):
+    global access_token, refresh_token
 
-    url = f"https://api.invertironline.com/api/{MERCADO}/Titulos/{simbolo}/Cotizacion?model.mercado={MERCADO}&model.plazo=t1&model.simbolo={simbolo}"
-    headers = {"Authorization": f"Bearer {token}"}
-    r = requests.get(url, headers=headers)
-    r.raise_for_status() 
-    t1 = r.json()["ultimoPrecio"]
+    def consulta(plazo):
+        headers = {"Authorization": f"Bearer {get_token()}"}
+        url = f"https://api.invertironline.com/api/{MERCADO}/Titulos/{simbolo}/Cotizacion?model.mercado={MERCADO}&model.plazo={plazo}&model.simbolo={simbolo}"
+        r = requests.get(url, headers=headers)
+        if r.status_code == 401:
+            raise ValueError("Token expirado")
+        r.raise_for_status()
+        return r.json()["ultimoPrecio"]
+
+    try:
+        t0 = consulta("t0")
+        t1 = consulta("t1")
+    except ValueError as e:
+        if "expirado" in str(e):
+            print(f"🔁 Token expirado al consultar {simbolo}. Renovando...")
+            with token_lock:
+                access_token, refresh_token = refrescar_token(refresh_token)
+            t0 = consulta("t0")
+            t1 = consulta("t1")
+        else:
+            raise
 
     return {
         "simbolo": simbolo,
@@ -64,7 +97,9 @@ def obtener_precio(simbolo, token):
 
 # === BUCLE PRINCIPAL ===
 def monitorear():
-    token = obtener_token()
+    global access_token, refresh_token
+    access_token, refresh_token = obtener_token()
+
     info = f"\n[🕒 Comienzo de Chequeo a las {time.strftime('%H:%M:%S')} - Intervalo (minutos): {INTERVALO_MINUTOS}\nTICKERS: {TICKERS}"
 
     print (info)
@@ -72,7 +107,7 @@ def monitorear():
 
     while True:
         with ThreadPoolExecutor(max_workers=5) as executor:
-            resultados = list(executor.map(lambda args: obtener_precio(*args), zip(TICKERS, [token]*len(TICKERS))))
+            resultados = list(executor.map(obtener_precio, TICKERS))
 
         for datos in resultados:
             try:
