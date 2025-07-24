@@ -18,7 +18,7 @@ MERCADO = "bcba"
 TICKERS = os.getenv("TICKERS", "")
 TICKERS = TICKERS.split(",") if TICKERS else []
 
-UMBRAL_VARIACION = 1.0  # En porcentaje
+UMBRAL_VARIACION = 1.5  # En porcentaje
 INTERVALO_MINUTOS = 1
 
 access_token = None
@@ -114,8 +114,8 @@ def monitorear():
                 simbolo = datos["simbolo"]
                 precio_t0 = datos["t0"]
                 precio_t1 = datos["t1"]
-                variacion = ((precio_t1 - precio_t0) / precio_t0) * 100
-                if abs(variacion) >= UMBRAL_VARIACION and precio_t1 > precio_t0:
+                variacion = ((precio_t0 - precio_t1) / precio_t1) * 100
+                if abs(variacion) >= UMBRAL_VARIACION and precio_t0 > precio_t1:
                     mensaje = f"🚨 Alerta: {simbolo} Desarbitraje {variacion:.2f}% (de {precio_t0} (T0) a {precio_t1} (T1) )"
                     print (mensaje)
                     enviar_telegram(mensaje)
