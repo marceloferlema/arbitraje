@@ -20,5 +20,13 @@ jobs:
         run: |
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      - name: Exportar variables de entorno
+        run: |
+          echo "USER=${{ secrets.USER }}" >> $GITHUB_ENV
+          echo "CHAT_ID=${{ secrets.CHAT_ID }}" >> $GITHUB_ENV
+          echo "PASSWORD=${{ secrets.PASSWORD }}" >> $GITHUB_ENV
+          echo "TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}" >> $GITHUB_ENV
+          echo "TICKERS=${{ secrets.TICKERS }}" >> $GITHUB_ENV
+
       - name: Ejecutar arbitraje.py
         run: python arbitraje.py
