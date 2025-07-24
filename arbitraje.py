@@ -13,7 +13,10 @@ USERNAME = os.getenv("USER")
 PASSWORD = os.getenv("PASSWORD")
 
 MERCADO = "bcba"
-TICKERS = ["EDN", "PBY26", "CRM", "RVS1O", "GGAL", "BHIP", "PYPL", "VALE", "VALO", "S12S5"]  # Lista de activos a comparar
+# Convertir string a lista
+TICKERS = os.getenv("TICKERS", "")
+TICKERS = TICKERS.split(",") if TICKERS else []
+
 UMBRAL_VARIACION = 1.0  # En porcentaje
 INTERVALO_MINUTOS = 1
 
@@ -62,7 +65,8 @@ def obtener_precio(simbolo, token):
 # === BUCLE PRINCIPAL ===
 def monitorear():
     token = obtener_token()
-    info = f"\n[🕒 Comienzo de Chequeo a las {time.strftime('%H:%M:%S')} - Intervalo (minutos): {INTERVALO_MINUTOS}"
+    info = f"\n[🕒 Comienzo de Chequeo a las {time.strftime('%H:%M:%S')} - Intervalo (minutos): {INTERVALO_MINUTOS}\nTICKERS: {TICKERS}"
+
     print (info)
     enviar_telegram(info)
 
