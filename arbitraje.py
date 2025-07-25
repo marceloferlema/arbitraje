@@ -18,7 +18,7 @@ MERCADO = "bcba"
 TICKERS = os.getenv("TICKERS", "")
 TICKERS = TICKERS.split(",") if TICKERS else []
 
-UMBRAL_VARIACION = 2  # En porcentaje
+UMBRAL_VARIACION = 1.2  # En porcentaje
 INTERVALO_MINUTOS = 1
 
 access_token = None
@@ -99,11 +99,12 @@ def obtener_precio(simbolo):
 def monitorear():
     global access_token, refresh_token
     access_token, refresh_token = obtener_token()
+    hora_utc_menos3 = time.gmtime(time.time() - 3 * 3600)
 
-    info = f"\n[🕒 Comienzo de Chequeo a las {time.strftime('%H:%M:%S')} - Intervalo (minutos): {INTERVALO_MINUTOS}\nTICKERS: {TICKERS}"
-
+    info = f"\n🕒 Comienzo de Chequeo a las {time.strftime('%H:%M:%S', hora_utc_menos3)} - Intervalo (minutos): {INTERVALO_MINUTOS}\nTICKERS: {TICKERS}"
     print (info)
     enviar_telegram(info)
+    ultimas_alertas = {}
 
     while True:
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -115,10 +116,15 @@ def monitorear():
                 precio_t0 = datos["t0"]
                 precio_t1 = datos["t1"]
                 variacion = ((precio_t0 - precio_t1) / precio_t1) * 100
+                clave_actual = (precio_t0, precio_t1, round(variacion, 2))
+                clave_anterior = ultimas_alertas.get(simbolo)                
+
                 if abs(variacion) >= UMBRAL_VARIACION and precio_t0 > precio_t1:
-                    mensaje = f"🚨 Alerta: {simbolo} Desarbitraje {variacion:.2f}% (de {precio_t0} (T0) a {precio_t1} (T1) )"
-                    print (mensaje)
-                    enviar_telegram(mensaje)
+                    if clave_actual != clave_anterior:
+                        mensaje = f"🚨 Alerta: {simbolo} Desarbitraje {variacion:.2f}% [de {precio_t0} (t0) a {precio_t1} (t1) ]"
+                        print (mensaje)
+                        enviar_telegram(mensaje)
+                        ultimas_alertas[simbolo] = clave_actual
             except Exception as e:
                 print(f"⚠️ Error al consultar {simbolo}: {e}")
         time.sleep(INTERVALO_MINUTOS * 60)
