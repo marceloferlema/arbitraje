@@ -18,7 +18,7 @@ MERCADO = "bcba"
 TICKERS = os.getenv("TICKERS", "")
 TICKERS = TICKERS.split(",") if TICKERS else []
 
-UMBRAL_VARIACION = 1.2  # En porcentaje
+UMBRAL_VARIACION = 2  # En porcentaje
 INTERVALO_MINUTOS = 1
 
 access_token = None
