@@ -74,7 +74,7 @@ def obtener_precio(simbolo):
         if r.status_code == 401:
             raise ValueError("Token expirado")
         r.raise_for_status()
-        if r.json()["cantidadOperaciones"] > 0
+        if r.json()["cantidadOperaciones"] > 0:
             return r.json()["ultimoPrecio"]
         return 0
     try:
