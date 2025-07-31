@@ -74,8 +74,9 @@ def obtener_precio(simbolo):
         if r.status_code == 401:
             raise ValueError("Token expirado")
         r.raise_for_status()
-        return r.json()["ultimoPrecio"]
-
+        if r.json()["cantidadOperaciones"] > 0
+            return r.json()["ultimoPrecio"]
+        return 0
     try:
         t0 = consulta("t0")
         t1 = consulta("t1")
@@ -115,6 +116,8 @@ def monitorear():
                 simbolo = datos["simbolo"]
                 precio_t0 = datos["t0"]
                 precio_t1 = datos["t1"]
+                if precio_t0 == 0 or precio_t1 == 0:
+                    continue
                 variacion = ((precio_t0 - precio_t1) / precio_t1) * 100
                 clave_actual = (precio_t0, precio_t1, round(variacion, 2))
                 clave_anterior = ultimas_alertas.get(simbolo)                
