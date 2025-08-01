@@ -28,5 +28,6 @@ jobs:
           echo "TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}" >> $GITHUB_ENV
           echo "TICKERS=${{ secrets.TICKERS }}" >> $GITHUB_ENV
 
+
       - name: Ejecutar arbitraje.py
         run: python arbitraje.py
