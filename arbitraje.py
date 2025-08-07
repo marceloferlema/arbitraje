@@ -116,11 +116,13 @@ def monitorear():
                 simbolo = datos["simbolo"]
                 precio_t0 = datos["t0"]
                 precio_t1 = datos["t1"]
+
                 if precio_t0 == 0 or precio_t1 == 0:
                     continue
                 variacion = ((precio_t0 - precio_t1) / precio_t1) * 100
                 clave_actual = (precio_t0, precio_t1, round(variacion, 2))
                 clave_anterior = ultimas_alertas.get(simbolo)                
+                print (f"{simbolo} - {precio_t0} - {precio_t1} - {variacion}%")
 
                 if abs(variacion) >= UMBRAL_VARIACION and precio_t0 > precio_t1:
                     if clave_actual != clave_anterior:
