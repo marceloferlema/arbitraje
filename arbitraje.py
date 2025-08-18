@@ -4,10 +4,14 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 from dotenv import load_dotenv
 import os
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
 
 # === CONFIGURACIÓN ===
 load_dotenv()
 
+CONTINUEBOT = False
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 USERNAME = os.getenv("USER")
@@ -24,6 +28,23 @@ INTERVALO_MINUTOS = 1
 access_token = None
 refresh_token = None
 token_lock = threading.Lock()
+
+@app.route("/startbot", methods=["GET"])
+def startbot():
+    global CONTINUEBOT
+    if not CONTINUEBOT:
+        CONTINUEBOT = True
+        thread = threading.Thread(target=monitorear)
+        thread.start()
+        return jsonify({"message": "Starting bot"})
+    else:
+        return jsonify({"message": "Already started"})
+
+@app.route("/stopbot", methods=["GET"])
+def stopbot():
+    global CONTINUEBOT
+    CONTINUEBOT = False
+    return jsonify({"message": "Stop bot"})
 
 def get_token():
     with token_lock:
@@ -98,7 +119,7 @@ def obtener_precio(simbolo):
 
 # === BUCLE PRINCIPAL ===
 def monitorear():
-    global access_token, refresh_token
+    global access_token, refresh_token, CONTINUEBOT
     access_token, refresh_token = obtener_token()
     hora_utc_menos3 = time.gmtime(time.time() - 3 * 3600)
 
@@ -107,7 +128,7 @@ def monitorear():
     enviar_telegram(info)
     ultimas_alertas = {}
 
-    while True:
+    while CONTINUEBOT:
         with ThreadPoolExecutor(max_workers=5) as executor:
             resultados = list(executor.map(obtener_precio, TICKERS))
 
@@ -136,5 +157,4 @@ def monitorear():
 
 # === INICIAR MONITOREO ===
 if __name__ == "__main__":
-    monitorear()
-
+    app.run(host="0.0.0.0", port=5000, debug=True)
