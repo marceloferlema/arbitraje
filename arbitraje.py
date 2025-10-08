@@ -23,7 +23,7 @@ TICKERS = os.getenv("TICKERS", "")
 TICKERS = TICKERS.split(",") if TICKERS else []
 
 UMBRAL_VARIACION = 2  # En porcentaje
-INTERVALO_MINUTOS = 1
+INTERVALO_MINUTOS = 2
 
 access_token = None
 refresh_token = None
