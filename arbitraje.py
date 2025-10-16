@@ -18,8 +18,18 @@ USERNAME = os.getenv("USER")
 PASSWORD = os.getenv("PASSWORD")
 
 MERCADO = "bcba"
-# Convertir string a lista
-TICKERS = "S28N5,BAK,PBY26,CRM,RVS1O,GGAL,BHIP,PYPL,VALE,VALO,S12S5,HMY,AGRO,ALUA,BBAR,BMA,CECO2,CEPU,COME,CRES,EDN,IRSA,LOMA,LONG,PAMP,SAMI,TECO2,AAPL,ADGO,AMD,AMGN,AZN,B,BHP,BIOX,BNG,BP,CVX,DIA,F,HSBC,IWM,JNJ,KO,MELI,MRK,PBR,PG,SID,SLB,SPY,UL,XLE,XOM,AE38,BA37D,BB37D,BPOC7,BPOD7,ERF25,NDT25,PMM29,SA24D,DEC2O,BYCLO,RUCDO,SNAAO,CELU,HMY,MRVL,TRAN,ECOG,TX26,ZZC1O"
+#ECO
+TICKERS = "BHIP,VALO,GGAL,TRAN,PYPL,XLE,B,BAK,VALE,CRM,S28N5,PBY26,DEC2O,SNAAO,RVS1O,CLI1O" 
+#BALANZ ACCIONES
+TICKERS += ",AGRO,ALUA,BBAR,BMA,CECO2,CEPU,COME,CRES,EDN,GGAL,IRSA,LOMA,LONG,PAMP,TECO2"
+#BALANZ BONOS
+TICKERS += ",AE38,BA37D,BB37D,BPOC7,BPOD7,ERF25,NDT25,PMM29,SA24D"
+#BALANZ CEDEARS
+TICKERS += ",AAPL,ACN,ADGO,AMGN,AZN,BHP,BP,CVX,DIA,HSBC,IWM,JNJ,MELI,MRK,PBR,PG,QCOM,SID,SLB,SPY,UL,XOM"
+#BALANZ CORPORATIVOS
+TICKERS += ",BYCLO,CLSIO,RUCDO,ZZC1O"  #LECHO,MR36O,MR38O,MR39O,DEC2O,SNAAO,VSCKO
+#BALANZ LETRAS
+#S28N5
 TICKERS = TICKERS.split(",") if TICKERS else []
 
 UMBRAL_VARIACION = 2  # En porcentaje
@@ -91,13 +101,30 @@ def obtener_precio(simbolo):
     def consulta(plazo):
         headers = {"Authorization": f"Bearer {get_token()}"}
         url = f"https://api.invertironline.com/api/{MERCADO}/Titulos/{simbolo}/Cotizacion?model.mercado={MERCADO}&model.plazo={plazo}&model.simbolo={simbolo}"
-        r = requests.get(url, headers=headers)
-        if r.status_code == 401:
-            raise ValueError("Token expirado")
-        r.raise_for_status()
-        if r.json()["cantidadOperaciones"] > 0:
-            return r.json()["ultimoPrecio"]
-        return 0
+        
+        try:
+            r = requests.get(url, headers=headers)
+            if r.status_code == 401:
+                raise ValueError("Token expirado")
+            r.raise_for_status()
+            if r.json()["cantidadOperaciones"] > 0:
+                return r.json()["ultimoPrecio"]
+            return 0
+        except requests.exceptions.HTTPError as e:
+            # Captura y registra errores 4xx o 5xx (que no son 401)
+            print(f"❌ HTTP Error en {simbolo} ({plazo}): {e}")
+            return None # Retorna None para indicar fallo de consulta
+        except requests.exceptions.RequestException as e:
+            # Captura errores de conexión, timeout, etc.
+            print(f"❌ Conexión Error en {simbolo} ({plazo}): {e}")
+            return None # Retorna None para indicar fallo de consulta
+        except ValueError as e:
+            # Permite que el 'Token expirado' se propague
+            if "expirado" in str(e):
+                raise
+            # Captura otros ValueErrors (ej. error al parsear JSON si la respuesta fue exitosa pero mal formada)
+            print(f"❌ Error de Datos en {simbolo} ({plazo}): {e}")
+            return None
     try:
         t0 = consulta("t0")
         t1 = consulta("t1")
@@ -110,7 +137,16 @@ def obtener_precio(simbolo):
             t1 = consulta("t1")
         else:
             raise
-
+    
+    # *Control adicional para fallos de consulta*
+    # Si t0 o t1 fallaron (retornaron None) durante la consulta inicial o el reintento
+    if t0 is None or t1 is None:
+        return {
+            "simbolo": simbolo,
+            "t0": 0, # Se asigna 0 para que sea ignorado en el bucle monitorear()
+            "t1": 0
+        }
+    
     return {
         "simbolo": simbolo,
         "t0": t0,
