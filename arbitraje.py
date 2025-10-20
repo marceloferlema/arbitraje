@@ -32,7 +32,7 @@ TICKERS += ",BYCLO,CLSIO,RUCDO,ZZC1O"  #LECHO,MR36O,MR38O,MR39O,DEC2O,SNAAO,VSCK
 #S28N5
 TICKERS = TICKERS.split(",") if TICKERS else []
 
-UMBRAL_VARIACION = 2  # En porcentaje
+UMBRAL_VARIACION = 3  # En porcentaje
 INTERVALO_MINUTOS = 2
 
 access_token = None
@@ -168,6 +168,7 @@ def monitorear():
         with ThreadPoolExecutor(max_workers=5) as executor:
             resultados = list(executor.map(obtener_precio, TICKERS))
 
+        print (".....")
         for datos in resultados:
             try:
                 simbolo = datos["simbolo"]
@@ -179,11 +180,15 @@ def monitorear():
                 variacion = ((precio_t0 - precio_t1) / precio_t1) * 100
                 clave_actual = (precio_t0, precio_t1, round(variacion, 2))
                 clave_anterior = ultimas_alertas.get(simbolo)                
-                print (f"{simbolo} - {precio_t0} - {precio_t1} - {variacion}%")
+                #print (f"{simbolo} - {precio_t0} - {precio_t1} - {variacion}%")
 
-                if abs(variacion) >= UMBRAL_VARIACION and precio_t0 > precio_t1:
+                if abs(variacion) >= UMBRAL_VARIACION:
                     if clave_actual != clave_anterior:
-                        mensaje = f"🚨 Alerta: {simbolo} Desarbitraje {variacion:.2f}% [de {precio_t0} (t0) a {precio_t1} (t1) ]"
+                        var = "COMPRA"
+                        if precio_t0 > precio_t1:
+                            var = "VENTA"
+
+                        mensaje = f"🚨 {var}: {simbolo} Desarbitraje {variacion:.2f}% [de {precio_t0} (t0) a {precio_t1} (t1) ]"
                         print (mensaje)
                         enviar_telegram(mensaje)
                         ultimas_alertas[simbolo] = clave_actual
