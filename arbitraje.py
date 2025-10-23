@@ -100,10 +100,11 @@ def obtener_precio(simbolo):
 
     def consulta(plazo):
         headers = {"Authorization": f"Bearer {get_token()}"}
-        url = f"https://api.invertironline.com/api/{MERCADO}/Titulos/{simbolo}/Cotizacion?model.mercado={MERCADO}&model.plazo={plazo}&model.simbolo={simbolo}"
-        
+        #url = f"https://api.invertironline.com/api/{MERCADO}/Titulos/{simbolo}/Cotizacion?model.mercado={MERCADO}&model.plazo={plazo}&model.simbolo={simbolo}"
+        url = f"https://api.invertironline.com/api/v2/{MERCADO}/Titulos/{simbolo}/Cotizacion?plazo={plazo}"
         try:
             r = requests.get(url, headers=headers)
+            print(r.json())
             if r.status_code == 401:
                 raise ValueError("Token expirado")
             r.raise_for_status()
@@ -180,7 +181,7 @@ def monitorear():
                 variacion = ((precio_t0 - precio_t1) / precio_t1) * 100
                 clave_actual = (precio_t0, precio_t1, round(variacion, 2))
                 clave_anterior = ultimas_alertas.get(simbolo)                
-                #print (f"{simbolo} - {precio_t0} - {precio_t1} - {variacion}%")
+                print (f"{simbolo} - {precio_t0} - {precio_t1} - {variacion}%")
 
                 if abs(variacion) >= UMBRAL_VARIACION:
                     if clave_actual != clave_anterior:
