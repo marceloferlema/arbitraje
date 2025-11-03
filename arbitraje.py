@@ -19,21 +19,22 @@ PASSWORD = os.getenv("PASSWORD")
 
 MERCADO = "bcba"
 #ECO
-TICKERS = "BHIP,VALO,GGAL,TRAN,PYPL,XLE,B,BAK,VALE,CRM,S28N5,PBY26,DEC2O,SNAAO,RVS1O,CLI1O" 
+TICKERS = "BHIP,VALO,GGAL,TRAN,PYPL,XLE,B,BAK,VALE,CRM,S28N5,PBY26,DEC2O,SNAAO,RVS1O,CLI1O,UPST,VST" 
 #BALANZ ACCIONES
 TICKERS += ",AGRO,ALUA,BBAR,BMA,CECO2,CEPU,COME,CRES,EDN,GGAL,IRSA,LOMA,LONG,PAMP,TECO2"
 #BALANZ BONOS
 TICKERS += ",AE38,BA37D,BB37D,BPOC7,BPOD7,ERF25,NDT25,PMM29,SA24D"
 #BALANZ CEDEARS
-TICKERS += ",AAPL,ACN,ADGO,AMGN,AZN,BHP,BP,CVX,DIA,HSBC,IWM,JNJ,MELI,MRK,PBR,PG,QCOM,SID,SLB,SPY,UL,XOM"
+TICKERS += ",AAPL,ACN,ADGO,AMGN,AZN,BHP,BP,CVX,DIA,HSBC,IWM,JNJ,MELI,MRK,PBR,PG,QCOM,SID,SLB,SPY,UL,XOM,MSTR"
 #BALANZ CORPORATIVOS
 TICKERS += ",BYCLO,CLSIO,RUCDO,ZZC1O"  #LECHO,MR36O,MR38O,MR39O,DEC2O,SNAAO,VSCKO
 #BALANZ LETRAS
 #S28N5
 TICKERS = TICKERS.split(",") if TICKERS else []
 
-UMBRAL_VARIACION = 3  # En porcentaje
-INTERVALO_MINUTOS = 2
+UMBRAL_VARIACION = 2.5  # En porcentaje
+INTERVALO_MINUTOS = 1
+TELEGRAM_ON = False
 
 access_token = None
 refresh_token = None
@@ -61,6 +62,9 @@ def get_token():
         return access_token
     
 def enviar_telegram(mensaje):
+    if not TELEGRAM_ON:
+        return True
+    
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {
         "chat_id": CHAT_ID,
@@ -104,7 +108,6 @@ def obtener_precio(simbolo):
         url = f"https://api.invertironline.com/api/v2/{MERCADO}/Titulos/{simbolo}/Cotizacion?plazo={plazo}"
         try:
             r = requests.get(url, headers=headers)
-            print(r.json())
             if r.status_code == 401:
                 raise ValueError("Token expirado")
             r.raise_for_status()
@@ -181,7 +184,7 @@ def monitorear():
                 variacion = ((precio_t0 - precio_t1) / precio_t1) * 100
                 clave_actual = (precio_t0, precio_t1, round(variacion, 2))
                 clave_anterior = ultimas_alertas.get(simbolo)                
-                print (f"{simbolo} - {precio_t0} - {precio_t1} - {variacion}%")
+                #print (f"{simbolo} - {precio_t0} - {precio_t1} - {variacion}%")
 
                 if abs(variacion) >= UMBRAL_VARIACION:
                     if clave_actual != clave_anterior:
