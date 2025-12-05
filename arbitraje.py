@@ -19,18 +19,23 @@ PASSWORD = os.getenv("PASSWORD")
 
 MERCADO = "bcba"
 #ECO
-TICKERS = "BHIP,VALO,GGAL,TRAN,PYPL,XLE,B,BAK,VALE,CRM,S28N5,PBY26,DEC2O,SNAAO,RVS1O,CLI1O,UPST,VST" 
+TICKERS = "ADGO,AGRO,ALUA,B,BAK,BBAR,BYMA,CVX,GGAL,IRSA,LONG,MDLZ,PG,PYPL,SPY,TRAN,VALE,VST,WBO,XLE,DEC2O,RVS1O,S28N5,SNAAO"
 #BALANZ ACCIONES
-TICKERS += ",AGRO,ALUA,BBAR,BMA,CECO2,CEPU,COME,CRES,EDN,GGAL,IRSA,LOMA,LONG,PAMP,TECO2"
+TICKERS += ",BMA,CECO2,CEPU,CRES,GGAL,PAMP"
 #BALANZ BONOS
-TICKERS += ",AE38,BA37D,BB37D,BPOC7,BPOD7,ERF25,NDT25,PMM29,SA24D"
+TICKERS += ",AE38,BA37D,BB37D,BPOC7,BPOD7,ERF25,NDT25,PMM29,SA24D,TX26"
 #BALANZ CEDEARS
-TICKERS += ",AAPL,ACN,ADGO,AMGN,AZN,BHP,BP,CVX,DIA,HSBC,IWM,JNJ,MELI,MRK,PBR,PG,QCOM,SID,SLB,SPY,UL,XOM,MSTR"
+TICKERS += ",AAPL,ACN,AMGN,AZN,BHP,BP,DIA,CVX,HSBC,IWM,MELI,MRK,MSTR,PBR,QCOM,SID,SLB,UL,XOM"
 #BALANZ CORPORATIVOS
-TICKERS += ",BYCLO,CLSIO,RUCDO,ZZC1O"  #LECHO,MR36O,MR38O,MR39O,DEC2O,SNAAO,VSCKO
+TICKERS += ",CLSIO,RUCDO,ZZC1O"  #LECHO,MR36O,MR38O,MR39O,DEC2O,SNAAO,VSCKO
 #BALANZ LETRAS
-#S28N5
-TICKERS = TICKERS.split(",") if TICKERS else []
+
+#TICKERS SOLO COMPRA
+TICKERS_BUY = "BHIP,COME,CRM,EDN,SUPV,UPST,VALO,PBY26,LOMA,TECO2,JNJ"
+TICKERS += "," + TICKERS_BUY
+
+TICKERS = [t.strip() for t in TICKERS.split(",") if t.strip()]
+TICKERS_BUY = [t.strip() for t in TICKERS_BUY.split(",") if t.strip()]
 
 UMBRAL_VARIACION = 2  # En porcentaje
 INTERVALO_MINUTOS = 1
@@ -169,7 +174,7 @@ def monitorear():
     ultimas_alertas = {}
 
     while CONTINUEBOT:
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=20) as executor:
             resultados = list(executor.map(obtener_precio, TICKERS))
 
         print (".....")
@@ -191,6 +196,9 @@ def monitorear():
                         var = "COMPRA"
                         if precio_t0 > precio_t1:
                             var = "VENTA"
+
+                        if simbolo in TICKERS_BUY and var == "VENTA":
+                            continue
 
                         mensaje = f"🚨 {var}: {simbolo} Desarbitraje {variacion:.2f}% [de {precio_t0} (t0) a {precio_t1} (t1) ]"
                         print (mensaje)
