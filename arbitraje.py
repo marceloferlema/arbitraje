@@ -174,7 +174,7 @@ def monitorear():
     ultimas_alertas = {}
 
     while CONTINUEBOT:
-        with ThreadPoolExecutor(max_workers=20) as executor:
+        with ThreadPoolExecutor(max_workers=10) as executor:
             resultados = list(executor.map(obtener_precio, TICKERS))
 
         print (".....")
