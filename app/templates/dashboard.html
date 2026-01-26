@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Bot Arbitraje - Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; padding: 20px; }
+        .COMPRA { color: #198754; font-weight: bold; }
+        .VENTA { color: #dc3545; font-weight: bold; }
+        @keyframes highlight {
+            0% { background-color: #fff3cd; }
+            100% { background-color: transparent; }
+        }
+        .nueva-fila { animation: highlight 2s ease-out; }
+        
+        /* Estilos para el estado */
+        .status-dot {
+            height: 12px;
+            width: 12px;
+            background-color: #bbb;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .status-running { background-color: #198754; box-shadow: 0 0 5px #198754; }
+        .status-stopped { background-color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-0">⚡ Monitor de Arbitraje</h2>
+                    <small class="text-muted">
+                        Estado: <span id="status-dot" class="status-dot"></span> 
+                        <span id="status-text">Desconocido</span>
+                    </small>
+                </div>
+                
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-success" id="btn-start" onclick="controlBot('startbot')">
+                        <i class="bi bi-play-fill"></i> Iniciar
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" id="btn-stop" onclick="controlBot('stopbot')">
+                        <i class="bi bi-stop-fill"></i> Detener
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card shadow">
+            <div class="card-body">
+                <table class="table table-striped table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Hora</th>
+                            <th>Ticker</th>
+                            <th>Operación</th>
+                            <th>Variación</th>
+                            <th>T0 (CI)</th>
+                            <th>T1 (24hs)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-cuerpo">
+                        </tbody>
+                </table>
+                <div id="loading" class="text-center py-3 d-none">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="text-end mt-2 text-muted">
+            <small id="last-update">Sincronizando...</small>
+        </div>
+    </div>
+
+    <script>
+        // === 1. CONTROL DEL BOT (START/STOP) ===
+        function controlBot(endpoint) {
+            // Deshabilitar botones temporalmente
+            toggleButtons(true);
+            
+            fetch('/' + endpoint)
+                .then(response => response.json())
+                .then(data => {
+                    actualizarEstadoVisual(data.running);
+                })
+                .catch(error => console.error('Error controlando bot:', error))
+                .finally(() => toggleButtons(false));
+        }
+
+        function actualizarEstadoVisual(isRunning) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            const btnStart = document.getElementById('btn-start');
+            const btnStop = document.getElementById('btn-stop');
+
+            if (isRunning) {
+                dot.className = 'status-dot status-running';
+                text.innerText = "EJECUTANDO";
+                text.className = "text-success fw-bold";
+                btnStart.classList.add('active'); // Visualmente presionado
+                btnStop.classList.remove('active');
+            } else {
+                dot.className = 'status-dot status-stopped';
+                text.innerText = "DETENIDO";
+                text.className = "text-danger fw-bold";
+                btnStart.classList.remove('active');
+                btnStop.classList.add('active'); // Visualmente presionado
+            }
+        }
+        
+        function toggleButtons(disabled) {
+            document.getElementById('btn-start').disabled = disabled;
+            document.getElementById('btn-stop').disabled = disabled;
+        }
+
+        // === 2. ACTUALIZACIÓN DE DATOS ===
+        function actualizarTabla() {
+            // Primero consultamos si el bot sigue vivo
+            fetch('/api/status')
+                .then(res => res.json())
+                .then(statusData => {
+                    actualizarEstadoVisual(statusData.running);
+                });
+
+            // Luego traemos las alertas
+            fetch('/api/alertas')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('tabla-cuerpo');
+                    tbody.innerHTML = ''; 
+                    
+                    if (data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Sin alertas recientes...</td></tr>';
+                    } else {
+                        data.forEach(alerta => {
+                            const fila = `
+                                <tr>
+                                    <td>${alerta.hora}</td>
+                                    <td><strong>${alerta.simbolo}</strong></td>
+                                    <td class="${alerta.tipo}">${alerta.tipo}</td>
+                                    <td>${alerta.variacion}%</td>
+                                    <td>$${alerta.t0}</td>
+                                    <td>$${alerta.t1}</td>
+                                </tr>
+                            `;
+                            tbody.innerHTML += fila;
+                        });
+                    }
+                    
+                    const ahora = new Date().toLocaleTimeString();
+                    document.getElementById('last-update').innerText = 'Última sincro: ' + ahora;
+                })
+                .catch(error => console.error('Error fetching alertas:', error));
+        }
+
+        // Cargar estado inicial y arrancar ciclo
+        actualizarTabla();
+        setInterval(actualizarTabla, 5000); 
+    </script>
+</body>
+</html>

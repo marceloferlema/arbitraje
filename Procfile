@@ -1,1 +1,0 @@
-worker: arbitraje.py
