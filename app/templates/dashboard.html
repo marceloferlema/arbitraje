@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>⚡ Bot Arbitraje - Panel</title>
+    <title>⚡ Bot Arbitraje - Live</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <style>
@@ -16,7 +16,6 @@
         }
         .nueva-fila { animation: highlight 2s ease-out; }
         
-        /* Estilos para el estado */
         .status-dot {
             height: 12px;
             width: 12px;
@@ -42,6 +41,10 @@
                 </div>
                 
                 <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-secondary" id="btn-sound" onclick="toggleSound()">
+                        <i class="bi bi-volume-mute-fill" id="icon-sound"></i>
+                    </button>
+                    
                     <button type="button" class="btn btn-outline-success" id="btn-start" onclick="controlBot('startbot')">
                         <i class="bi bi-play-fill"></i> Iniciar
                     </button>
@@ -80,17 +83,39 @@
     </div>
 
     <script>
-        // === 1. CONTROL DEL BOT (START/STOP) ===
-        function controlBot(endpoint) {
-            // Deshabilitar botones temporalmente
-            toggleButtons(true);
+        // === 1. CONFIGURACIÓN DE AUDIO ===
+        let sonidoHabilitado = false;
+        let ultimaAlertaId = null; // Para saber si ya tocamos el sonido para esta alerta
+
+        // Un "beep" corto en base64 para no depender de archivos externos
+        const audioBeep = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU"); 
+        // Nota: El string de arriba es un placeholder muy corto. 
+        // Abajo uso uno real de notificación (tipo 'glass ping').
+        const sonidoNotificacion = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+
+        function toggleSound() {
+            sonidoHabilitado = !sonidoHabilitado;
+            const btn = document.getElementById('btn-sound');
+            const icon = document.getElementById('icon-sound');
             
+            if (sonidoHabilitado) {
+                btn.className = "btn btn-primary";
+                icon.className = "bi bi-volume-up-fill";
+                // Reproducir silencio breve para "desbloquear" el audio en el navegador
+                sonidoNotificacion.play().catch(e => console.log("Audio desbloqueado"));
+            } else {
+                btn.className = "btn btn-outline-secondary";
+                icon.className = "bi bi-volume-mute-fill";
+            }
+        }
+
+        // === 2. CONTROL DEL BOT ===
+        function controlBot(endpoint) {
+            toggleButtons(true);
             fetch('/' + endpoint)
                 .then(response => response.json())
-                .then(data => {
-                    actualizarEstadoVisual(data.running);
-                })
-                .catch(error => console.error('Error controlando bot:', error))
+                .then(data => actualizarEstadoVisual(data.running))
+                .catch(error => console.error('Error:', error))
                 .finally(() => toggleButtons(false));
         }
 
@@ -104,14 +129,14 @@
                 dot.className = 'status-dot status-running';
                 text.innerText = "EJECUTANDO";
                 text.className = "text-success fw-bold";
-                btnStart.classList.add('active'); // Visualmente presionado
+                btnStart.classList.add('active');
                 btnStop.classList.remove('active');
             } else {
                 dot.className = 'status-dot status-stopped';
                 text.innerText = "DETENIDO";
                 text.className = "text-danger fw-bold";
                 btnStart.classList.remove('active');
-                btnStop.classList.add('active'); // Visualmente presionado
+                btnStop.classList.add('active');
             }
         }
         
@@ -120,16 +145,12 @@
             document.getElementById('btn-stop').disabled = disabled;
         }
 
-        // === 2. ACTUALIZACIÓN DE DATOS ===
+        // === 3. ACTUALIZACIÓN DE DATOS CON SONIDO ===
         function actualizarTabla() {
-            // Primero consultamos si el bot sigue vivo
             fetch('/api/status')
                 .then(res => res.json())
-                .then(statusData => {
-                    actualizarEstadoVisual(statusData.running);
-                });
+                .then(statusData => actualizarEstadoVisual(statusData.running));
 
-            // Luego traemos las alertas
             fetch('/api/alertas')
                 .then(response => response.json())
                 .then(data => {
@@ -138,21 +159,41 @@
                     
                     if (data.length === 0) {
                         tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Sin alertas recientes...</td></tr>';
-                    } else {
-                        data.forEach(alerta => {
-                            const fila = `
-                                <tr>
-                                    <td>${alerta.hora}</td>
-                                    <td><strong>${alerta.simbolo}</strong></td>
-                                    <td class="${alerta.tipo}">${alerta.tipo}</td>
-                                    <td>${alerta.variacion}%</td>
-                                    <td>$${alerta.t0}</td>
-                                    <td>$${alerta.t1}</td>
-                                </tr>
-                            `;
-                            tbody.innerHTML += fila;
-                        });
+                        return;
                     }
+
+                    // Logica de Sonido:
+                    // Verificamos si la alerta más nueva (data[0]) es diferente a la última que vimos
+                    const alertaMasReciente = data[0];
+                    // Creamos un ID único combinando hora y simbolo
+                    const idActual = alertaMasReciente.hora + alertaMasReciente.simbolo;
+
+                    if (ultimaAlertaId !== null && ultimaAlertaId !== idActual) {
+                        // ¡Hay una alerta nueva!
+                        if (sonidoHabilitado) {
+                            sonidoNotificacion.play().catch(e => console.error("No se pudo reproducir sonido:", e));
+                        }
+                    }
+                    // Actualizamos el ID guardado
+                    ultimaAlertaId = idActual;
+
+                    // Renderizar Tabla
+                    data.forEach((alerta, index) => {
+                        // Agregamos clase 'nueva-fila' solo a la primera si acaba de llegar
+                        const claseAnimacion = (index === 0 && ultimaAlertaId === idActual) ? '' : ''; 
+                        
+                        const fila = `
+                            <tr class="${claseAnimacion}">
+                                <td>${alerta.hora}</td>
+                                <td><strong>${alerta.simbolo}</strong></td>
+                                <td class="${alerta.tipo}">${alerta.tipo}</td>
+                                <td>${alerta.variacion}%</td>
+                                <td>$${alerta.t0}</td>
+                                <td>$${alerta.t1}</td>
+                            </tr>
+                        `;
+                        tbody.innerHTML += fila;
+                    });
                     
                     const ahora = new Date().toLocaleTimeString();
                     document.getElementById('last-update').innerText = 'Última sincro: ' + ahora;
@@ -160,7 +201,6 @@
                 .catch(error => console.error('Error fetching alertas:', error));
         }
 
-        // Cargar estado inicial y arrancar ciclo
         actualizarTabla();
         setInterval(actualizarTabla, 5000); 
     </script>
