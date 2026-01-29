@@ -1,0 +1,72 @@
+body { background-color: #f8f9fa; padding: 20px; }
+
+/* === ETIQUETAS === */
+.lbl-base {
+    color: white; 
+    font-weight: 700; 
+    padding: 4px 8px;
+    border-radius: 4px; 
+    font-size: 0.75em; 
+    display: inline-block; 
+    text-transform: uppercase; 
+    letter-spacing: 0.5px;
+    min-width: 110px; /* Un poco más ancho para que entren los textos largos */
+    text-align: center;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2); /* Sombra suave al texto para leer mejor */
+}
+
+/* === COLORES === */
+
+/* 1. ESTRATEGIA NORMAL (Referencia / Último Precio) 
+   Usamos colores distintivos pero "no urgentes" */
+.COMPRA { 
+    background-color: #0dcaf0; /* Cyan / Celeste fuerte */
+    border: 1px solid #0aa2c0;
+} 
+.VENTA  { 
+    background-color: #fd7e14; /* Naranja */
+    border: 1px solid #e06c0d;
+} 
+
+/* 2. ESTRATEGIA FUERTE (Ejecutable / Puntas Reales) 
+   Usamos colores SEMÁFORO intensos con brillo/sombra */
+.COMPRA_FUERTE { 
+    background-color: #198754; /* Verde Éxito */
+    box-shadow: 0 0 8px rgba(25, 135, 84, 0.5); /* Resplandor verde */
+    border: 1px solid #0f5132;
+}
+.VENTA_FUERTE { 
+    background-color: #dc3545; /* Rojo Peligro */
+    box-shadow: 0 0 8px rgba(220, 53, 69, 0.5); /* Resplandor rojo */
+    border: 1px solid #842029;
+}
+
+/* === RESTO DEL CSS (Sin cambios) === */
+#check-compra:checked { background-color: #0dcaf0; border-color: #0dcaf0; }
+#check-venta:checked  { background-color: #fd7e14; border-color: #fd7e14; }
+
+@keyframes highlight { 0% { background-color: #fff3cd; } 100% { background-color: transparent; } }
+.nueva-fila { animation: highlight 2s ease-out; }
+
+.status-dot { height: 12px; width: 12px; background-color: #bbb; border-radius: 50%; display: inline-block; margin-right: 5px; }
+.status-running { background-color: #198754; box-shadow: 0 0 5px #198754; }
+.status-stopped { background-color: #dc3545; }
+
+.table > :not(caption) > * > * { padding: 0.5rem 0.5rem; }
+
+/* === RESALTADO DE ÚLTIMA ACTUALIZACIÓN === */
+.latest-scan {
+    /* Fondo azul/cyan muy tenue para destacar sin saturar */
+    background-color: rgba(13, 202, 240, 0.08) !important; 
+    
+    /* Borde izquierdo sólido para identificación rápida visual */
+    border-left: 4px solid #0dcaf0 !important;
+    
+    /* Pequeña transición suave */
+    transition: background-color 0.5s ease;
+}
+
+/* Ajuste para que el borde no mueva el contenido */
+.latest-scan td:first-child {
+    padding-left: 10px; /* Compensamos visualmente */
+}

@@ -9,8 +9,6 @@ class BotArbitraje:
         self.is_running = False
         self.alertas = [] 
         self.ultimas_alertas_enviadas = {}
-        
-        # Variables de autenticación
         self.access_token = None
         self.refresh_token = None
         self.token_lock = threading.Lock()
@@ -31,10 +29,9 @@ class BotArbitraje:
     def obtener_alertas(self):
         return self.alertas
 
-    # === GESTIÓN ROBUSTA DE TOKENS ===
+    # === GESTIÓN DE TOKENS ===
     def _realizar_login_password(self):
-        """Intenta loguearse con usuario y contraseña (el 'Hard Reset')"""
-        print("🔑 Intentando Login completo (Usuario/Password)...")
+        print("🔑 Login completo (Usuario/Password)...")
         url = "https://api.invertironline.com/token"
         data = {
             "grant_type": "password",
@@ -42,134 +39,105 @@ class BotArbitraje:
             "password": Config.PASSWORD
         }
         try:
-            r = requests.post(url, data=data)
-            
-            # Si nos da 429 aquí, hay que esperar sí o sí
+            r = requests.post(url, data=data, timeout=10)
             if r.status_code == 429:
-                print("⏳ API Rate Limit (429). Esperando 60 segundos...")
                 time.sleep(60) 
                 return False
-
             r.raise_for_status()
             response = r.json()
             self.access_token = response["access_token"]
             self.refresh_token = response["refresh_token"]
-            print("✅ Login completo exitoso.")
+            print("✅ Login exitoso.")
             return True
         except Exception as e:
-            print(f"⛔ Error fatal en Login: {e}")
+            print(f"⛔ Error Login: {e}")
             return False
 
     def _intentar_refresh_token(self):
-        """Intenta usar el refresh token. Si falla, pide Login completo."""
-        print("🔄 Intentando Refresh Token...")
+        print("🔄 Refresh Token...")
         url = "https://api.invertironline.com/token"
         data = {
             "grant_type": "refresh_token",
             "refresh_token": self.refresh_token
         }
         try:
-            r = requests.post(url, data=data)
-            
-            # Si el refresh token es inválido (400 o 401), forzamos Login
+            r = requests.post(url, data=data, timeout=10)
             if r.status_code in [400, 401]:
-                print("⚠️ Refresh Token vencido/inválido. Pasando a Login...")
                 return self._realizar_login_password()
-            
             if r.status_code == 429:
-                print("⏳ API Rate Limit (429) en Refresh. Esperando 60s...")
                 time.sleep(60)
                 return False
-
             r.raise_for_status()
             response = r.json()
             self.access_token = response["access_token"]
             self.refresh_token = response["refresh_token"]
-            print("✅ Token refrescado con éxito.")
             return True
-        except Exception as e:
-            print(f"⛔ Falló el refresh: {e}")
-            return self._realizar_login_password() # Fallback final
+        except Exception:
+            return self._realizar_login_password()
 
     def _get_current_token_safe(self):
         with self.token_lock:
             return self.access_token
 
-    # === CONSULTA DE PRECIOS ===
+    # === CONSULTA MIXTA (Último Precio + Puntas) ===
     def _consultar_precio_individual(self, simbolo):
-        # Si el bot se detuvo, no hacemos nada
         if not self.is_running: return None
+        token = self._get_current_token_safe()
+        if not token: return None
 
-        token_actual = self._get_current_token_safe()
-        if not token_actual: return None
-
-        def _llamada_api(plazo, token_to_use):
-            headers = {"Authorization": f"Bearer {token_to_use}"}
-            url = f"https://api.invertironline.com/api/v2/{Config.MERCADO}/Titulos/{simbolo}/Cotizacion?plazo={plazo}"
+        def _get_market_data(plazo):
+            headers = {"Authorization": f"Bearer {token}"}
             try:
-                r = requests.get(url, headers=headers, timeout=5) # Timeout vital para no colgar hilos
-                
-                if r.status_code == 401:
-                    raise ValueError("Token expirado")
-                
-                # Si nos bloquean por muchas requests, devolvemos None silenciosamente
+                r = requests.get(
+                    f"https://api.invertironline.com/api/v2/{Config.MERCADO}/Titulos/{simbolo}/Cotizacion?plazo={plazo}",
+                    headers=headers, timeout=3
+                )
                 if r.status_code == 429:
-                    print(f"⏳ 429 en {simbolo}. Pausando hilo.")
-                    time.sleep(5)
+                    time.sleep(2)
                     return None
-
-                r.raise_for_status()
-                data = r.json()
-                if data and "cantidadOperaciones" in data and data["cantidadOperaciones"] > 0:
-                    return data["ultimoPrecio"]
-                return 0
-            except requests.exceptions.RequestException as e:
-                # Errores de red (timeout, dns, etc)
+                if r.status_code == 401: raise ValueError("Expirado")
+                
+                if r.status_code == 200:
+                    d = r.json()
+                    # Estructura base segura
+                    data = {
+                        "ultimo": d.get("ultimoPrecio", 0),
+                        "compra": 0, # Bid
+                        "venta": 0   # Ask
+                    }
+                    # Llenamos puntas si existen
+                    if "puntas" in d and d["puntas"] and len(d["puntas"]) > 0:
+                        mejor = d["puntas"][0]
+                        data["compra"] = mejor.get("precioCompra", 0)
+                        data["venta"] = mejor.get("precioVenta", 0)
+                    return data
                 return None
             except Exception as e:
-                if "expirado" in str(e): raise
+                if "Expirado" in str(e): raise
                 return None
 
         try:
-            t0 = _llamada_api("t0", token_actual)
-            # Pequeña pausa para no saturar la API entre t0 y t1 del mismo activo
-            time.sleep(0.1) 
-            t1 = _llamada_api("t1", token_actual)
-        
-        except ValueError as e:
-            if "expirado" in str(e):
-                with self.token_lock:
-                    # Double-Checked Locking
-                    if self.access_token == token_actual:
-                        # Si falló la renovación, no seguimos intentando en este ciclo
-                        if not self._intentar_refresh_token():
-                            return None
-                    
-                # Reintentar con el nuevo token (o lo que haya quedado)
-                nuevo_token = self._get_current_token_safe()
-                if nuevo_token:
-                    t0 = _llamada_api("t0", nuevo_token)
-                    t1 = _llamada_api("t1", nuevo_token)
-                else:
-                    return None
-            else:
-                return None
+            dato_t0 = _get_market_data("t0")
+            dato_t1 = _get_market_data("t1")
+            
+            # Solo retornamos None si falló la llamada API completa, no si faltan precios
+            if dato_t0 is None or dato_t1 is None: return None
+            
+            return {"simbolo": simbolo, "t0": dato_t0, "t1": dato_t1}
 
-        if t0 is None or t1 is None:
+        except ValueError:
+            with self.token_lock:
+                self._intentar_refresh_token()
             return None
-
-        return {"simbolo": simbolo, "t0": t0, "t1": t1}
 
     # === BUCLE PRINCIPAL ===
     def _bucle_monitoreo(self):
-        print("🤖 Iniciando monitoreo...")
-        print("📋 Tickers cargados:", Config.TICKERS)
-        # Login inicial
+        print("🤖 Iniciando monitoreo (Lógica Usuario)...")
+        max_workers = getattr(Config, 'THREADS', 5)
+        
         if not self._realizar_login_password():
-            print("⛔ Falló el login inicial. Reintentando en 1 minuto...")
             time.sleep(60)
             if not self._realizar_login_password():
-                print("💀 No se puede conectar a IOL. Bot Detenido.")
                 self.is_running = False
                 return
 
@@ -177,50 +145,82 @@ class BotArbitraje:
             hora_actual = time.strftime('%H:%M:%S')
             print(f"🕒 Escaneo {hora_actual}...")
             
-            # ThreadPool
-            with ThreadPoolExecutor(max_workers=Config.THREADS) as executor:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 resultados = list(executor.map(self._consultar_precio_individual, Config.TICKERS))
 
             for datos in resultados:
-                if not datos or datos["t0"] == 0 or datos["t1"] == 0:
-                    continue
+                if not datos: continue
 
                 simbolo = datos["simbolo"]
-                p_t0 = datos["t0"]
-                p_t1 = datos["t1"]
                 
-                variacion = ((p_t0 - p_t1) / p_t1) * 100
+                # Datos crudos (TU LOGICA)
+                t0_bid = datos["t0"]["compra"] 
+                t0_ask = datos["t0"]["venta"] 
                 
-                if abs(variacion) >= Config.UMBRAL_VARIACION:
-                    tipo_op = "COMPRA" if variacion < 0 else "VENTA"
-                    
-                    if simbolo in Config.TICKERS_BUY and tipo_op == "VENTA":
-                        continue
+                t1_bid = datos["t1"]["compra"] 
+                t1_ask = datos["t1"]["venta"] 
 
-                    clave_actual = (p_t0, p_t1, round(variacion, 2))
-                    clave_anterior = self.ultimas_alertas_enviadas.get(simbolo)
+                # CASO 1: ESTRATEGIA "COMPRA"
+                if t0_bid > 0 and t1_ask > 0:
+                    gap_normal = ((t0_bid - t1_ask) / t1_ask) * 100
                     
-                    if clave_actual != clave_anterior:
-                        print(f"🚨 {tipo_op}: {simbolo} GAP: {variacion:.2f}%")
-                        
-                        nueva_alerta = {
-                            "hora": hora_actual,
-                            "simbolo": simbolo,
-                            "tipo": tipo_op,
-                            "variacion": round(variacion, 2),
-                            "t0": p_t0,
-                            "t1": p_t1
-                        }
-                        self.alertas.insert(0, nueva_alerta)
-                        if len(self.alertas) > 50: self.alertas.pop()
-                        
-                        if Config.TELEGRAM_ON:
-                            self._enviar_telegram(f"🚨 {tipo_op}: {simbolo} {variacion:.2f}%")
-                        
-                        self.ultimas_alertas_enviadas[simbolo] = clave_actual
+                    if abs(gap_normal) >= Config.UMBRAL_VARIACION and gap_normal < 0:
+                        self._procesar_alerta(simbolo, "COMPRA", abs(gap_normal), t0_bid, t1_ask, hora_actual)
 
-            # Pausa entre barridos
+                # CASO 2: ESTRATEGIA "COMPRA FUERTE"
+                if t0_ask > 0 and t1_bid > 0:
+                    gap_fuerte = ((t0_ask - t1_bid) / t1_bid) * 100
+                    
+                    if abs(gap_fuerte) >= Config.UMBRAL_VARIACION and gap_fuerte < 0:
+                        self._procesar_alerta(simbolo, "COMPRA_FUERTE", abs(gap_fuerte), t0_ask, t1_bid, hora_actual)
+
+                # CASO 3: ESTRATEGIA "VENTA"
+                if t0_ask > 0 and t1_bid > 0:
+                    gap_normal = ((t0_ask - t1_bid) / t1_bid) * 100
+                    
+                    if gap_normal >= Config.UMBRAL_VARIACION:
+                         if simbolo not in Config.TICKERS_BUY:
+                            self._procesar_alerta(simbolo, "VENTA", gap_normal, t0_ask, t1_bid, hora_actual)
+
+                # CASO 3: ESTRATEGIA "VENTA FUERTE"
+                if t0_bid > 0 and t1_ask > 0:
+                    gap_fuerte = ((t0_bid - t1_ask) / t1_ask) * 100
+                    
+                    if gap_fuerte >= Config.UMBRAL_VARIACION:
+                         if simbolo not in Config.TICKERS_BUY:
+                            self._procesar_alerta(simbolo, "VENTA", gap_fuerte, t0_bid, t1_ask, hora_actual)
+
             time.sleep(Config.INTERVALO_MINUTOS * 60)
+
+    def _procesar_alerta(self, simbolo, tipo, variacion, p_in, p_out, hora):
+        p_in_r = round(p_in, 2)
+        p_out_r = round(p_out, 2)
+        var_r = round(variacion, 2)
+        
+        # Clave única por tipo para que "COMPRA" no pise a "COMPRA_FUERTE"
+        dict_key = f"{simbolo}_{tipo}"
+        clave_actual = (tipo, p_in_r, p_out_r, var_r)
+        
+        if self.ultimas_alertas_enviadas.get(dict_key) != clave_actual:
+            print(f"🚨 {tipo}: {simbolo} GAP: {var_r}%")
+            
+            nueva = {
+                "hora": hora, "simbolo": simbolo, "tipo": tipo,
+                "variacion": var_r, "t0": p_in_r, "t1": p_out_r
+            }
+            
+            self.alertas.insert(0, nueva)
+            if len(self.alertas) > 100: self.alertas.pop() # Subimos límite a 100
+            
+            # Iconos para Telegram
+            icono = "🟢" if "COMPRA" in tipo else "🔴"
+            if "FUERTE" in tipo: icono = "🚀" if "COMPRA" in tipo else "🔥"
+            
+            if Config.TELEGRAM_ON:
+                msg = f"{icono} <b>{tipo}</b>: {simbolo}\nGap: {var_r}%\nIn: ${p_in_r} | Out: ${p_out_r}"
+                self._enviar_telegram(msg)
+            
+            self.ultimas_alertas_enviadas[dict_key] = clave_actual
 
     def _enviar_telegram(self, mensaje):
         url = f"https://api.telegram.org/bot{Config.TELEGRAM_TOKEN}/sendMessage"
