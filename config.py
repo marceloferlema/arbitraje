@@ -12,7 +12,7 @@ class Config:
     
     # Configuración del Bot
     MERCADO = "bcba"
-    UMBRAL_VARIACION = 1.5
+    UMBRAL_VARIACION = 2
     INTERVALO_MINUTOS = 1
     TELEGRAM_ON = False # Poner en True si querés activar telegram
     THREADS = 10

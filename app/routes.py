@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, render_template
 from app.services.bot_engine import bot_instance
+from app.extensions import socketio
 
 main_bp = Blueprint('main', __name__)
 
@@ -26,3 +27,9 @@ def start_bot():
 def stop_bot():
     bot_instance.detener()
     return jsonify({"message": "Bot detenido", "running": False})
+
+@main_bp.route('/api/limpiar')
+def limpiar_datos():
+    bot_instance.limpiar_datos()    
+    socketio.emit('actualizacion_alertas', []) 
+    return jsonify({'status': 'ok'})

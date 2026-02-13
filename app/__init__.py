@@ -1,14 +1,14 @@
 from flask import Flask
+from .routes import main_bp
+from .extensions import socketio  # <--- Importamos
 
 def create_app():
     app = Flask(__name__)
-    
-    # 1. Configuración básica (Opcional, si usaras config.py para flask keys)
-    # app.config.from_object('config.Config')
+    app.config.from_object('config.Config')
 
-    # 2. Importamos y registramos el Blueprint
-    # Lo hacemos ADENTRO de la función para evitar "Circular Import Error"
-    from app.routes import main_bp
     app.register_blueprint(main_bp)
     
+    # Inicializamos SocketIO con la app
+    socketio.init_app(app) 
+
     return app

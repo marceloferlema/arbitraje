@@ -3,6 +3,7 @@ import time
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from config import Config
+from app.extensions import socketio
 
 class BotArbitraje:
     def __init__(self):
@@ -28,6 +29,12 @@ class BotArbitraje:
 
     def obtener_alertas(self):
         return self.alertas
+    
+    def limpiar_datos(self):
+        """Borra todas las alertas y el historial de envíos"""
+        self.alertas = []
+        self.ultimas_alertas_enviadas = {} # Reiniciamos para que si vuelven a aparecer, avise de nuevo
+        return True
 
     # === GESTIÓN DE TOKENS ===
     def _realizar_login_password(self):
@@ -156,39 +163,42 @@ class BotArbitraje:
                 # Datos crudos (TU LOGICA)
                 t0_bid = datos["t0"]["compra"] 
                 t0_ask = datos["t0"]["venta"] 
+                t0_price = datos["t0"]["ultimo"] 
                 
                 t1_bid = datos["t1"]["compra"] 
                 t1_ask = datos["t1"]["venta"] 
+                t1_price = datos["t1"]["ultimo"] 
+
 
                 # CASO 1: ESTRATEGIA "COMPRA"
-                if t0_bid > 0 and t1_ask > 0:
-                    gap_normal = ((t0_bid - t1_ask) / t1_ask) * 100
+                if t0_bid > 0 and t1_price > 0:
+                    gap_normal = ((t0_bid - t1_price) / t1_price) * 100
                     
                     if abs(gap_normal) >= Config.UMBRAL_VARIACION and gap_normal < 0:
-                        self._procesar_alerta(simbolo, "COMPRA", abs(gap_normal), t0_bid, t1_ask, hora_actual)
+                        self._procesar_alerta(simbolo, "COMPRA", abs(gap_normal), t0_bid, t1_price, hora_actual)
 
                 # CASO 2: ESTRATEGIA "COMPRA FUERTE"
-                if t0_ask > 0 and t1_bid > 0:
-                    gap_fuerte = ((t0_ask - t1_bid) / t1_bid) * 100
+                if t0_ask > 0 and t1_price > 0:
+                    gap_fuerte = ((t0_ask - t1_price) / t1_price) * 100
                     
                     if abs(gap_fuerte) >= Config.UMBRAL_VARIACION and gap_fuerte < 0:
-                        self._procesar_alerta(simbolo, "COMPRA_FUERTE", abs(gap_fuerte), t0_ask, t1_bid, hora_actual)
+                        self._procesar_alerta(simbolo, "COMPRA_FUERTE", abs(gap_fuerte), t0_ask, t1_price, hora_actual)
 
                 # CASO 3: ESTRATEGIA "VENTA"
-                if t0_ask > 0 and t1_bid > 0:
-                    gap_normal = ((t0_ask - t1_bid) / t1_bid) * 100
+                if t0_ask > 0 and t1_price > 0:
+                    gap_normal = ((t0_ask - t1_price) / t1_price) * 100
                     
                     if gap_normal >= Config.UMBRAL_VARIACION:
                          if simbolo not in Config.TICKERS_BUY:
-                            self._procesar_alerta(simbolo, "VENTA", gap_normal, t0_ask, t1_bid, hora_actual)
+                            self._procesar_alerta(simbolo, "VENTA", gap_normal, t0_ask, t1_price, hora_actual)
 
                 # CASO 3: ESTRATEGIA "VENTA FUERTE"
-                if t0_bid > 0 and t1_ask > 0:
-                    gap_fuerte = ((t0_bid - t1_ask) / t1_ask) * 100
+                if t0_bid > 0 and t1_price > 0:
+                    gap_fuerte = ((t0_bid - t1_price) / t1_price) * 100
                     
                     if gap_fuerte >= Config.UMBRAL_VARIACION:
                          if simbolo not in Config.TICKERS_BUY:
-                            self._procesar_alerta(simbolo, "VENTA", gap_fuerte, t0_bid, t1_ask, hora_actual)
+                            self._procesar_alerta(simbolo, "VENTA", gap_fuerte, t0_bid, t1_price, hora_actual)
 
             time.sleep(Config.INTERVALO_MINUTOS * 60)
 
@@ -215,6 +225,11 @@ class BotArbitraje:
             # Iconos para Telegram
             icono = "🟢" if "COMPRA" in tipo else "🔴"
             if "FUERTE" in tipo: icono = "🚀" if "COMPRA" in tipo else "🔥"
+            
+            # === MAGIA REAL-TIME ===
+            # Emitimos el evento 'nueva_data' con la lista completa de alertas actualizada
+            print("📡 Enviando actualización WebSocket al frontend...")
+            socketio.emit('actualizacion_alertas', self.alertas)
             
             if Config.TELEGRAM_ON:
                 msg = f"{icono} <b>{tipo}</b>: {simbolo}\nGap: {var_r}%\nIn: ${p_in_r} | Out: ${p_out_r}"
