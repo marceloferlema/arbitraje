@@ -13,7 +13,8 @@ class BotArbitraje:
         self.access_token = None
         self.refresh_token = None
         self.token_lock = threading.Lock()
-        
+        self.session = requests.Session()
+
     def iniciar(self):
         if not self.is_running:
             self.is_running = True
@@ -45,7 +46,7 @@ class BotArbitraje:
             "password": Config.PASSWORD
         }
         try:
-            r = requests.post(url, data=data, timeout=10)
+            r = self.session.post(url, data=data, timeout=10)
             if r.status_code == 429:
                 socketio.sleep(60) 
                 return False
@@ -67,7 +68,7 @@ class BotArbitraje:
             "refresh_token": self.refresh_token
         }
         try:
-            r = requests.post(url, data=data, timeout=10)
+            r = self.session.post(url, data=data, timeout=10)
             if r.status_code in [400, 401]:
                 return self._realizar_login_password()
             if r.status_code == 429:
@@ -94,7 +95,7 @@ class BotArbitraje:
         def _get_market_data(plazo):
             headers = {"Authorization": f"Bearer {token}"}
             try:
-                r = requests.get(
+                r = self.session.get(
                     f"https://api.invertironline.com/api/v2/{Config.MERCADO}/Titulos/{simbolo}/Cotizacion?plazo={plazo}",
                     headers=headers, timeout=3
                 )
@@ -147,59 +148,62 @@ class BotArbitraje:
                 self.is_running = False
                 return
 
-        while self.is_running:
-            hora_actual = time.strftime('%H:%M:%S')
-            print(f"🕒 Escaneo {hora_actual}...")
-            
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+
+        try:
+            while self.is_running:
+                hora_actual = time.strftime('%H:%M:%S')
+                print(f"🕒 Escaneo {hora_actual}...")
+                
                 resultados = list(executor.map(self._consultar_precio_individual, Config.TICKERS))
+                for datos in resultados:
+                    if not datos: continue
 
-            for datos in resultados:
-                if not datos: continue
-
-                simbolo = datos["simbolo"]
-                
-                # Datos crudos (TU LOGICA)
-                t0_bid = datos["t0"]["compra"] 
-                t0_ask = datos["t0"]["venta"] 
-                t0_price = datos["t0"]["ultimo"] 
-                
-                t1_bid = datos["t1"]["compra"] 
-                t1_ask = datos["t1"]["venta"] 
-                t1_price = datos["t1"]["ultimo"] 
-
-
-                # CASO 1: ESTRATEGIA "COMPRA"
-                if t0_bid > 0 and t1_price > 0:
-                    gap_normal = ((t0_bid - t1_price) / t1_price) * 100
+                    simbolo = datos["simbolo"]
                     
-                    if abs(gap_normal) >= Config.UMBRAL_VARIACION and gap_normal < 0:
-                        self._procesar_alerta(simbolo, "COMPRA", abs(gap_normal), t0_bid, t1_price, hora_actual)
-
-                # CASO 2: ESTRATEGIA "COMPRA FUERTE"
-                if t0_ask > 0 and t1_price > 0:
-                    gap_fuerte = ((t0_ask - t1_price) / t1_price) * 100
+                    # Datos crudos (TU LOGICA)
+                    t0_bid = datos["t0"]["compra"] 
+                    t0_ask = datos["t0"]["venta"] 
+                    t0_price = datos["t0"]["ultimo"] 
                     
-                    if abs(gap_fuerte) >= Config.UMBRAL_VARIACION and gap_fuerte < 0:
-                        self._procesar_alerta(simbolo, "COMPRA_FUERTE", abs(gap_fuerte), t0_ask, t1_price, hora_actual)
+                    t1_bid = datos["t1"]["compra"] 
+                    t1_ask = datos["t1"]["venta"] 
+                    t1_price = datos["t1"]["ultimo"] 
 
-                # CASO 3: ESTRATEGIA "VENTA"
-                if t0_ask > 0 and t1_price > 0:
-                    gap_normal = ((t0_ask - t1_price) / t1_price) * 100
-                    
-                    if gap_normal >= Config.UMBRAL_VARIACION:
-                         if simbolo not in Config.TICKERS_BUY:
-                            self._procesar_alerta(simbolo, "VENTA", gap_normal, t0_ask, t1_price, hora_actual)
 
-                # CASO 3: ESTRATEGIA "VENTA FUERTE"
-                if t0_bid > 0 and t1_price > 0:
-                    gap_fuerte = ((t0_bid - t1_price) / t1_price) * 100
-                    
-                    if gap_fuerte >= Config.UMBRAL_VARIACION:
-                         if simbolo not in Config.TICKERS_BUY:
-                            self._procesar_alerta(simbolo, "VENTA", gap_fuerte, t0_bid, t1_price, hora_actual)
+                    # CASO 1: ESTRATEGIA "COMPRA"
+                    if t0_bid > 0 and t1_price > 0:
+                        gap_normal = ((t0_bid - t1_price) / t1_price) * 100
+                        
+                        if abs(gap_normal) >= Config.UMBRAL_VARIACION and gap_normal < 0:
+                            self._procesar_alerta(simbolo, "COMPRA", abs(gap_normal), t0_bid, t1_price, hora_actual)
 
-            socketio.sleep(Config.INTERVALO_MINUTOS * 60)
+                    # CASO 2: ESTRATEGIA "COMPRA FUERTE"
+                    if t0_ask > 0 and t1_price > 0:
+                        gap_fuerte = ((t0_ask - t1_price) / t1_price) * 100
+                        
+                        if abs(gap_fuerte) >= Config.UMBRAL_VARIACION and gap_fuerte < 0:
+                            self._procesar_alerta(simbolo, "COMPRA_FUERTE", abs(gap_fuerte), t0_ask, t1_price, hora_actual)
+
+                    # CASO 3: ESTRATEGIA "VENTA"
+                    if t0_ask > 0 and t1_price > 0:
+                        gap_normal = ((t0_ask - t1_price) / t1_price) * 100
+                        
+                        if gap_normal >= Config.UMBRAL_VARIACION:
+                            if simbolo not in Config.TICKERS_BUY:
+                                self._procesar_alerta(simbolo, "VENTA", gap_normal, t0_ask, t1_price, hora_actual)
+
+                    # CASO 3: ESTRATEGIA "VENTA FUERTE"
+                    if t0_bid > 0 and t1_price > 0:
+                        gap_fuerte = ((t0_bid - t1_price) / t1_price) * 100
+                        
+                        if gap_fuerte >= Config.UMBRAL_VARIACION:
+                            if simbolo not in Config.TICKERS_BUY:
+                                self._procesar_alerta(simbolo, "VENTA", gap_fuerte, t0_bid, t1_price, hora_actual)
+
+                socketio.sleep(Config.INTERVALO_MINUTOS * 60)
+        finally:
+            executor.shutdown(wait=False)
 
     def _procesar_alerta(self, simbolo, tipo, variacion, p_in, p_out, hora):
         p_in_r = round(p_in, 2)
@@ -240,7 +244,7 @@ class BotArbitraje:
         url = f"https://api.telegram.org/bot{Config.TELEGRAM_TOKEN}/sendMessage"
         data = {"chat_id": Config.CHAT_ID, "text": mensaje, "parse_mode": "HTML"}
         try:
-            requests.post(url, data=data, timeout=5)
+            self.session.post(url, data=data, timeout=5)
         except Exception:
             pass
 
