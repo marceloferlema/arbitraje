@@ -17,9 +17,8 @@ class BotArbitraje:
     def iniciar(self):
         if not self.is_running:
             self.is_running = True
-            thread = threading.Thread(target=self._bucle_monitoreo)
-            thread.daemon = True 
-            thread.start()
+            # Iniciamos la tarea usando SocketIO para que no se desconecte del canal web
+            socketio.start_background_task(self._bucle_monitoreo)
             return True
         return False
 
@@ -48,7 +47,7 @@ class BotArbitraje:
         try:
             r = requests.post(url, data=data, timeout=10)
             if r.status_code == 429:
-                time.sleep(60) 
+                socketio.sleep(60) 
                 return False
             r.raise_for_status()
             response = r.json()
@@ -72,7 +71,7 @@ class BotArbitraje:
             if r.status_code in [400, 401]:
                 return self._realizar_login_password()
             if r.status_code == 429:
-                time.sleep(60)
+                socketio.sleep(60)
                 return False
             r.raise_for_status()
             response = r.json()
@@ -100,7 +99,7 @@ class BotArbitraje:
                     headers=headers, timeout=3
                 )
                 if r.status_code == 429:
-                    time.sleep(2)
+                    socketio.sleep(2)
                     return None
                 if r.status_code == 401: raise ValueError("Expirado")
                 
@@ -143,7 +142,7 @@ class BotArbitraje:
         max_workers = getattr(Config, 'THREADS', 5)
         
         if not self._realizar_login_password():
-            time.sleep(60)
+            socketio.sleep(60)
             if not self._realizar_login_password():
                 self.is_running = False
                 return
@@ -200,7 +199,7 @@ class BotArbitraje:
                          if simbolo not in Config.TICKERS_BUY:
                             self._procesar_alerta(simbolo, "VENTA", gap_fuerte, t0_bid, t1_price, hora_actual)
 
-            time.sleep(Config.INTERVALO_MINUTOS * 60)
+            socketio.sleep(Config.INTERVALO_MINUTOS * 60)
 
     def _procesar_alerta(self, simbolo, tipo, variacion, p_in, p_out, hora):
         p_in_r = round(p_in, 2)

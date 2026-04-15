@@ -1,6 +1,5 @@
-// === 1. CONFIGURACIÓN INICIAL ===
-// Conectamos con el WebSocket
-const socket = io(); 
+// 1 Conectamos con el WebSocket
+const socket = io('http://' + window.location.host);
 
 // Variables de audio
 let sonidoHabilitado = false;
