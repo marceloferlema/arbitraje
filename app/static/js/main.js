@@ -1,5 +1,5 @@
 // 1 Conectamos con el WebSocket
-const socket = io('http://' + window.location.host);
+const socket = io();
 
 // Variables de audio
 let sonidoHabilitado = false;
