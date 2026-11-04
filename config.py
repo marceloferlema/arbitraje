@@ -18,6 +18,24 @@ class Config:
         "ppPYTHONSb" if PPI_SANDBOX else "pp19PythonApp12"
     )
 
+    # Configuración de Planes y Monetización
+    PRECIO_PLAN_PRO_ARS = int(os.getenv("PRECIO_PLAN_PRO_ARS", 10000))
+    TRIAL_DIAS = int(os.getenv("TRIAL_DIAS", 5))
+    MAX_ESPECIES_FREE = int(os.getenv("MAX_ESPECIES_FREE", 10))
+    PUBLIC_URL = os.getenv("PUBLIC_URL", "http://localhost:5000").rstrip("/")
+
+    # Mercado Pago
+    MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN", "")
+    MP_PUBLIC_KEY = os.getenv("MP_PUBLIC_KEY", "")
+
+    # Configuración SMTP Emails Transaccionales
+    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+    SMTP_USER = os.getenv("SMTP_USER", "")
+    SMTP_PASS = os.getenv("SMTP_PASS", "")
+    SMTP_FROM = os.getenv("SMTP_FROM", os.getenv("SMTP_USER", "notificaciones@arbitrajebyma.com"))
+    SMTP_SSL = os.getenv("SMTP_SSL", "False").lower() == "true"
+
     # Notificaciones Telegram
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
     CHAT_ID = os.getenv("CHAT_ID")

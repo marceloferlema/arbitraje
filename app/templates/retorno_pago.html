@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Estado del Pago - Arbitraje BYMA</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="bg-dark d-flex align-items-center justify-content-center" style="min-height: 100vh;">
+    <div class="container text-center" style="max-width: 480px;">
+        <div class="card shadow border-0 p-4">
+            {% if status_pago in ('success', 'approved', 'demo') %}
+                <div class="mb-3 text-success">
+                    <i class="bi bi-patch-check-fill" style="font-size: 4rem;"></i>
+                </div>
+                <h3 class="fw-bold mb-2">¡Suscripción PRO Activada!</h3>
+                <p class="text-muted">
+                    Tu pago ha sido procesado exitosamente. Ya tenés acceso ilimitado a todas las alertas de arbitraje en tiempo real, precios ejecutables y notificaciones en Telegram.
+                </p>
+                {% if status_pago == 'demo' %}
+                <div class="badge bg-warning text-dark py-2 px-3 mb-3">
+                    <i class="bi bi-info-circle-fill"></i> Modo Demo: 30 días acreditados automáticamente para prueba
+                </div>
+                {% endif %}
+            {% elif status_pago == 'pending' %}
+                <div class="mb-3 text-warning">
+                    <i class="bi bi-hourglass-split" style="font-size: 4rem;"></i>
+                </div>
+                <h3 class="fw-bold mb-2">Pago Pendiente</h3>
+                <p class="text-muted">
+                    Estamos esperando la confirmación de Mercado Pago. Apenas se acredite, tu cuenta pasará a PRO automáticamente.
+                </p>
+            {% else %}
+                <div class="mb-3 text-danger">
+                    <i class="bi bi-x-circle-fill" style="font-size: 4rem;"></i>
+                </div>
+                <h3 class="fw-bold mb-2">No se completó el pago</h3>
+                <p class="text-muted">
+                    El proceso de pago fue cancelado o rechazado. Podés volver a intentarlo cuando gustes desde tu panel.
+                </p>
+            {% endif %}
+
+            <div class="mt-4">
+                <a href="{{ url_for('main.dashboard') }}" class="btn btn-primary fw-bold py-2 px-4 w-100">
+                    <i class="bi bi-arrow-left me-1"></i> Volver a Mi Panel de Arbitrajes
+                </a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

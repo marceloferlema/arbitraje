@@ -9,7 +9,7 @@ import simple_websocket
 from concurrent.futures import ThreadPoolExecutor
 from config import Config
 from app.extensions import socketio
-from app.database import init_db, obtener_perfiles_activos_motor
+from app.database import init_db, obtener_perfiles_activos_motor, guardar_top_opportunity
 
 # Offset oficial de Argentina: UTC-3 sin horario de verano
 TZ_ARGENTINA = timezone(timedelta(hours=-3), name="ART")
@@ -749,6 +749,18 @@ class BotArbitraje:
         monto_r = int(round(monto_ars, 0))
         nom_r = int(round(nominales, 0))
 
+        # Cálculo de Comisiones de Broker y Ganancia Neta
+        comision_broker = float(uconf.get("comision_broker", 0.50))
+        costo_comision = round(comision_broker * 2.0, 2)  # Compra en CI + Venta en 24h
+        variacion_neta = round(var_r - costo_comision, 2)
+
+        capital_operacion = float(uconf.get("capital_operacion", 1000000.0))
+        monto_base_calc = min(monto_r, capital_operacion) if monto_r > 0 else capital_operacion
+        ganancia_neta_ars = int(round(monto_base_calc * (variacion_neta / 100.0), 0)) if variacion_neta > 0 else 0
+
+        es_pro = bool(uconf.get("es_pro", False))
+        bloqueada_pro = (not es_pro) and ("FUERTE" in tipo)
+
         lado_prefijo = "COMPRA" if "COMPRA" in tipo else "VENTA"
         dict_key = f"{simbolo}_{lado_prefijo}"
         clave_actual = (tipo, p_in_r, p_out_r, var_r, monto_r)
@@ -758,15 +770,25 @@ class BotArbitraje:
 
         if ultimas_user.get(dict_key) != clave_actual:
             username = uconf.get("username", f"user_{user_id}")
-            print(f"🚨 [PPI -> @{username}] {tipo}: {simbolo} GAP: {var_r}% | Vol: ${monto_r:,} ({nom_r} nom.)")
+            print(f"🚨 [PPI -> @{username}] {tipo}: {simbolo} GAP: {var_r}% (Neto: {variacion_neta}%) | Vol: ${monto_r:,} ({nom_r} nom.) | Ganancia Est.: ${ganancia_neta_ars:,}")
+
+            # Registramos en las oportunidades del día para prueba social y reportes
+            if var_r >= 1.5:
+                guardar_top_opportunity(simbolo, tipo, var_r, p_in_r, p_out_r, monto_r)
 
             nueva = {
                 "hora": hora,
                 "simbolo": simbolo,
                 "tipo": tipo,
                 "variacion": var_r,
-                "t0": p_in_r,
-                "t1": p_out_r,
+                "variacion_neta": variacion_neta,
+                "ganancia_neta_ars": ganancia_neta_ars,
+                "costo_comision": costo_comision,
+                "t0": "🔒 PRO" if bloqueada_pro else p_in_r,
+                "t1": "🔒 PRO" if bloqueada_pro else p_out_r,
+                "t0_raw": p_in_r,
+                "t1_raw": p_out_r,
+                "bloqueada_pro": bloqueada_pro,
                 "monto": monto_r,
                 "nominales": nom_r,
                 "proveedor": "PPI"
@@ -793,8 +815,8 @@ class BotArbitraje:
             if emitir_ws:
                 socketio.emit('actualizacion_alertas', alertas_user, to=f"user_{user_id}")
 
-            # Notificación Telegram con Cooldown (evita saturar con alertas repetidas)
-            tg_on = uconf.get("telegram_on") or Config.TELEGRAM_ON
+            # Notificación Telegram con Cooldown (solo para usuarios PRO/TRIAL/VIP)
+            tg_on = uconf.get("telegram_on") and es_pro
             tg_chat = uconf.get("telegram_chat_id") or Config.CHAT_ID
             cooldown = getattr(Config, "TELEGRAM_COOLDOWN_SEGUNDOS", 60)
             now_ts = time.time()
@@ -811,7 +833,9 @@ class BotArbitraje:
                     icono = "🚀" if "COMPRA" in tipo else "🔥"
                 msg = (
                     f"{icono} <b>{tipo}</b> (PPI - @{username}): {simbolo}\n"
-                    f"Gap: {var_r}% | Vol Ejecutable: ${monto_r:,} ({nom_r} nom.)\n"
+                    f"Gap Bruto: {var_r}% | <b>Neto: {variacion_neta}%</b>\n"
+                    f"Ganancia Neta Est.: <b>${ganancia_neta_ars:,} ARS</b>\n"
+                    f"Vol Ejecutable: ${monto_r:,} ({nom_r} nom.)\n"
                     f"CI (In): ${p_in_r} | 24h (Out): ${p_out_r}"
                 )
                 self._enviar_telegram(msg, tg_chat)

@@ -9,11 +9,18 @@ from app.database import (
     obtener_usuario_por_id,
     crear_usuario,
     actualizar_config_usuario,
+    actualizar_plan_usuario,
     set_dark_mode_usuario,
     obtener_catalogo_usuario,
     guardar_seleccion_usuario,
-    sincronizar_catalogo_byma_completo
+    sincronizar_catalogo_byma_completo,
+    obtener_top_opportunities_hoy,
+    listar_usuarios,
+    listar_todos_los_pagos
 )
+from app.services.payment_service import payment_service
+from app.services.email_service import email_service
+from config import Config
 
 main_bp = Blueprint('main', __name__)
 
@@ -134,6 +141,14 @@ def register_user():
     session["username"] = res["username"]
     session["is_admin"] = False
 
+    # Disparamos email de bienvenida con Trial activado en segundo plano
+    if email:
+        email_service.enviar_bienvenida_trial(
+            destinatario=email,
+            username=res["username"],
+            dias=getattr(Config, "TRIAL_DIAS", 5)
+        )
+
     bot_instance.recargar_especies_db(emitir_limpieza=True, user_id=res["id"])
     return redirect(url_for("main.dashboard"))
 
@@ -168,6 +183,7 @@ def api_alertas():
 @login_required
 def api_status():
     user_id = session["user_id"]
+    user = obtener_usuario_por_id(user_id) or {}
     en_horario, txt_horario = bot_instance._verificar_ventana_operativa_ci()
     return jsonify({
         "running": bot_instance.is_running,
@@ -177,7 +193,12 @@ def api_status():
         "username": session.get("username"),
         "is_admin": session.get("is_admin", False),
         "market_open": en_horario,
-        "market_status": txt_horario
+        "market_status": txt_horario,
+        "plan": user.get("plan", "FREE"),
+        "es_pro": user.get("es_pro", False),
+        "dias_restantes": user.get("dias_restantes", 0),
+        "plan_expires_at": user.get("plan_expires_at"),
+        "precio_pro_ars": getattr(Config, "PRECIO_PLAN_PRO_ARS", 10000)
     })
 
 
@@ -249,6 +270,8 @@ def api_config_usuario():
     telegram_chat_id = (payload.get("telegram_chat_id") or "").strip()
     telegram_on = bool(payload.get("telegram_on", False))
     dark_mode = payload.get("dark_mode")
+    comision_broker = payload.get("comision_broker")
+    capital_operacion = payload.get("capital_operacion")
     nueva_password = (payload.get("nueva_password") or "").strip()
 
     if nueva_password and len(nueva_password) < 6:
@@ -262,12 +285,128 @@ def api_config_usuario():
         telegram_chat_id=telegram_chat_id,
         telegram_on=telegram_on,
         dark_mode=bool(dark_mode) if dark_mode is not None else None,
+        comision_broker=float(comision_broker) if comision_broker is not None else None,
+        capital_operacion=float(capital_operacion) if capital_operacion is not None else None,
         nueva_password=nueva_password if nueva_password else None
     )
     bot_instance.recargar_especies_db(emitir_limpieza=True, user_id=user_id)
     return jsonify({
         "status": "ok",
         "message": "Parámetros actualizados y aplicados en tiempo real."
+    })
+
+
+# =============================================================================
+# MONETIZACIÓN: MERCADO PAGO, SUSCRIPCIONES Y WEBHOOKS
+# =============================================================================
+@main_bp.route("/api/pagos/crear-preferencia", methods=["POST"])
+@login_required
+def api_crear_preferencia():
+    user_id = session["user_id"]
+    user = obtener_usuario_por_id(user_id)
+    if not user:
+        return jsonify({"status": "error", "message": "Usuario no encontrado"}), 404
+
+    ok, res = payment_service.crear_preferencia_mp(
+        user_id=user_id,
+        email=user.get("email"),
+        username=user.get("username")
+    )
+    if not ok:
+        return jsonify({"status": "error", "message": str(res)}), 400
+
+    return jsonify({"status": "ok", "preference": res})
+
+
+@main_bp.route("/api/webhooks/mercadopago", methods=["GET", "POST"])
+def webhook_mercadopago():
+    """Callback público de notificación IPN / Webhooks de Mercado Pago."""
+    body = request.get_json(silent=True) or {}
+    query_params = request.args.to_dict()
+
+    ok, res = payment_service.procesar_notificacion(body, query_params)
+    if ok and isinstance(res, dict) and res.get("status") == "approved":
+        user_id = res.get("user_id")
+        if user_id:
+            bot_instance.recargar_especies_db(emitir_limpieza=True, user_id=user_id)
+            user_data = obtener_usuario_por_id(user_id)
+            if user_data and user_data.get("email"):
+                email_service.enviar_confirmacion_pro(
+                    destinatario=user_data["email"],
+                    username=user_data.get("username", "Trader"),
+                    dias=30
+                )
+
+    return jsonify({"status": "received"}), 200
+
+
+@main_bp.route("/pagos/retorno")
+@login_required
+def pago_retorno():
+    """Página a la que redirige Mercado Pago tras completar el pago."""
+    status_pago = request.args.get("status", "success")
+    ref = request.args.get("ref", "")
+    user_id = session["user_id"]
+
+    # Si es modo DEMO (sin credenciales reales de MP aún configuradas)
+    if status_pago == "demo":
+        actualizar_plan_usuario(user_id, "PRO", dias=30)
+        bot_instance.recargar_especies_db(emitir_limpieza=True, user_id=user_id)
+        user_data = obtener_usuario_por_id(user_id)
+        if user_data and user_data.get("email"):
+            email_service.enviar_confirmacion_pro(user_data["email"], user_data.get("username"), 30)
+
+    return render_template("retorno_pago.html", status_pago=status_pago)
+
+
+@main_bp.route("/api/top-oportunidades", methods=["GET"])
+@login_required
+def api_top_oportunidades():
+    """Devuelve las mejores oportunidades detectadas en la fecha de hoy."""
+    ops = obtener_top_opportunities_hoy(limite=10)
+    return jsonify({"status": "ok", "oportunidades": ops})
+
+
+# =============================================================================
+# ADMINISTRACIÓN DE USUARIOS Y PAGOS (SOLO ADMIN)
+# =============================================================================
+@main_bp.route("/api/admin/datos", methods=["GET"])
+@login_required
+def api_admin_datos():
+    if not session.get("is_admin"):
+        return jsonify({"status": "forbidden", "message": "Acceso exclusivo para administradores"}), 403
+
+    usuarios = listar_usuarios()
+    pagos = listar_todos_los_pagos()
+    return jsonify({
+        "status": "ok",
+        "usuarios": usuarios,
+        "pagos": pagos,
+        "total_usuarios": len(usuarios),
+        "total_pagos": len(pagos)
+    })
+
+
+@main_bp.route("/api/admin/usuario/cambiar-plan", methods=["POST"])
+@login_required
+def api_admin_cambiar_plan():
+    if not session.get("is_admin"):
+        return jsonify({"status": "forbidden", "message": "Acceso exclusivo para administradores"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    target_user_id = int(payload.get("user_id", 0))
+    nuevo_plan = (payload.get("plan") or "FREE").upper()
+    dias = int(payload.get("dias", 30))
+
+    if target_user_id <= 0:
+        return jsonify({"status": "error", "message": "ID de usuario inválido"}), 400
+
+    actualizar_plan_usuario(target_user_id, nuevo_plan, dias=dias)
+    bot_instance.recargar_especies_db(emitir_limpieza=True, user_id=target_user_id)
+
+    return jsonify({
+        "status": "ok",
+        "message": f"Usuario #{target_user_id} actualizado al plan {nuevo_plan} ({dias} días)"
     })
 
 

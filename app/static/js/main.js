@@ -31,7 +31,7 @@ function controlBot(endpoint) {
         .finally(() => toggleButtons(false));
 }
 
-function actualizarEstadoVisual(isRunning, provider, errorMsg, activeSpecies, marketStatus, marketOpen) {
+function actualizarEstadoVisual(isRunning, provider, errorMsg, activeSpecies, marketStatus, marketOpen, plan, diasRestantes, esPro) {
     const dot = document.getElementById('status-dot');
     const text = document.getElementById('status-text');
     const btnStart = document.getElementById('btn-start');
@@ -61,6 +61,22 @@ function actualizarEstadoVisual(isRunning, provider, errorMsg, activeSpecies, ma
         if (mktEl) {
             mktEl.innerText = marketStatus;
             mktEl.className = marketOpen ? "text-success fw-semibold" : "text-secondary";
+        }
+    }
+
+    // Actualización dinámica del plan del usuario
+    if (plan) {
+        const badgePlan = document.getElementById('badge-plan-container');
+        if (badgePlan) {
+            if (plan === 'VIP') {
+                badgePlan.innerHTML = '<span class="badge bg-warning text-dark"><i class="bi bi-star-fill"></i> VIP</span>';
+            } else if (plan === 'PRO') {
+                badgePlan.innerHTML = `<span class="badge bg-success" role="button" onclick="abrirModalSuscripcion()"><i class="bi bi-gem"></i> PRO (<span id="txt-dias-plan">${diasRestantes || 0}d</span>)</span>`;
+            } else if (plan === 'TRIAL') {
+                badgePlan.innerHTML = `<span class="badge bg-info text-dark" role="button" onclick="abrirModalSuscripcion()"><i class="bi bi-clock-history"></i> TRIAL (<span id="txt-dias-plan">${diasRestantes || 0}d</span>) <span class="badge bg-warning text-dark ms-1">💎 $10.000</span></span>`;
+            } else {
+                badgePlan.innerHTML = '<button class="btn btn-sm btn-warning fw-bold py-0 px-2" onclick="abrirModalSuscripcion()"><i class="bi bi-rocket-takeoff-fill"></i> 💎 Activar PRO ($10.000)</button>';
+            }
         }
     }
 
@@ -141,16 +157,16 @@ function ejecutarRenderTabla(data) {
     if (!tbody) return;
     
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Esperando oportunidades ejecutables...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Esperando oportunidades ejecutables...</td></tr>';
         document.getElementById('alert-count').innerText = 0;
         return;
     }
 
     // Lógica de Sonido solo cuando entra una oportunidad genuinamente nueva
     const alertaMasReciente = data[0];
-    const idActual = `${alertaMasReciente.simbolo}_${alertaMasReciente.tipo}_${alertaMasReciente.t0}_${alertaMasReciente.t1}`;
+    const idActual = alertaMasReciente ? `${alertaMasReciente.simbolo}_${alertaMasReciente.tipo}_${alertaMasReciente.t0}_${alertaMasReciente.t1}` : null;
 
-    if (ultimaAlertaId !== null && ultimaAlertaId !== idActual) {
+    if (ultimaAlertaId !== null && idActual && ultimaAlertaId !== idActual) {
         if (sonidoHabilitado) sonidoNotificacion.play().catch(e => console.error("Error audio:", e));
     }
     ultimaAlertaId = idActual;
@@ -163,6 +179,35 @@ function ejecutarRenderTabla(data) {
         const nomStr = alerta.nominales ? ` <small class="text-muted">(${alerta.nominales} nom.)</small>` : '';
         const filaId = `row-alerta-${alerta.simbolo}-${alerta.tipo}`;
         
+        // Gap Neto con color distintivo
+        let varNetaHtml = '-';
+        if (alerta.variacion_neta !== undefined) {
+            const colorNeta = alerta.variacion_neta > 0 ? 'text-warning' : 'text-danger';
+            varNetaHtml = `<span class="fw-bold ${colorNeta}">${alerta.variacion_neta > 0 ? '+' : ''}${alerta.variacion_neta}%</span>`;
+        }
+
+        // Puntas CI y 24h (bloqueadas para usuarios FREE en alertas FUERTES)
+        let celdaCI = '';
+        let celda24h = '';
+        let celdaGanancia = '';
+
+        if (alerta.bloqueada_pro) {
+            celdaCI = `<button class="btn btn-sm btn-outline-warning py-0 px-2 fw-semibold" style="font-size: 0.8em;" onclick="abrirModalSuscripcion()" title="Desbloquear en Plan PRO"><i class="bi bi-lock-fill"></i> PRO</button>`;
+            celda24h = `<button class="btn btn-sm btn-outline-warning py-0 px-2 fw-semibold" style="font-size: 0.8em;" onclick="abrirModalSuscripcion()" title="Desbloquear en Plan PRO"><i class="bi bi-lock-fill"></i> PRO</button>`;
+            celdaGanancia = `<span class="badge bg-secondary bg-opacity-25 text-muted py-1 px-2" role="button" onclick="abrirModalSuscripcion()" title="Desbloquear en Plan PRO"><i class="bi bi-lock-fill"></i> PRO</span>`;
+        } else {
+            celdaCI = `$${alerta.t0}`;
+            celda24h = `$${alerta.t1}`;
+            const gan = Number(alerta.ganancia_neta_ars || 0);
+            const colorGan = gan > 0 ? 'text-success' : 'text-secondary';
+            celdaGanancia = `<span class="fw-bold ${colorGan}">+${'$' + gan.toLocaleString('es-AR')}</span>`;
+        }
+
+        const t0_val = alerta.t0_raw !== undefined ? alerta.t0_raw : (typeof alerta.t0 === 'number' ? alerta.t0 : 0);
+        const t1_val = alerta.t1_raw !== undefined ? alerta.t1_raw : (typeof alerta.t1 === 'number' ? alerta.t1 : 0);
+        const var_neta_val = alerta.variacion_neta !== undefined ? alerta.variacion_neta : 0;
+        const monto_val = alerta.monto || 0;
+
         htmlBuffer += `
             <tr id="${filaId}">
                 <td>${alerta.hora}</td>
@@ -170,10 +215,17 @@ function ejecutarRenderTabla(data) {
                 <td class="text-center">
                     <span class="lbl-base ${alerta.tipo}">${textoTipo}</span>
                 </td>
-                <td class="text-end fw-bold text-success">${alerta.variacion}%</td>
-                <td class="text-end fw-semibold">$${alerta.t0}</td>
-                <td class="text-end fw-semibold">$${alerta.t1}</td>
+                <td class="text-end fw-bold text-secondary">${alerta.variacion}%</td>
+                <td class="text-end">${varNetaHtml}</td>
+                <td class="text-end fw-semibold">${celdaCI}</td>
+                <td class="text-end fw-semibold">${celda24h}</td>
                 <td class="text-end fw-semibold">${montoStr}${nomStr}</td>
+                <td class="text-end">${celdaGanancia}</td>
+                <td class="text-center">
+                    <button class="btn btn-sm btn-outline-primary py-0 px-2" title="Calcular ganancia neta para ${alerta.simbolo}" onclick="abrirCalculadora('${alerta.simbolo}', '${alerta.tipo}', ${t0_val}, ${t1_val}, ${alerta.variacion}, ${var_neta_val}, ${monto_val})">
+                        <i class="bi bi-calculator"></i>
+                    </button>
+                </td>
             </tr>
         `;
     });
@@ -201,7 +253,7 @@ fetch('/api/alertas')
 
 fetch('/api/status')
     .then(res => res.json())
-    .then(data => actualizarEstadoVisual(data.running, data.provider, data.error, data.active_species, data.market_status, data.market_open));
+    .then(data => actualizarEstadoVisual(data.running, data.provider, data.error, data.active_species, data.market_status, data.market_open, data.plan, data.dias_restantes, data.es_pro));
 
 // C. Status Check (Verifica si el bot está corriendo cada 10s)
 setInterval(() => {
@@ -213,7 +265,7 @@ setInterval(() => {
             }
             return res.json();
         })
-        .then(data => actualizarEstadoVisual(data.running, data.provider, data.error, data.active_species, data.market_status, data.market_open))
+        .then(data => actualizarEstadoVisual(data.running, data.provider, data.error, data.active_species, data.market_status, data.market_open, data.plan, data.dias_restantes, data.es_pro))
         .catch(() => {});
 }, 10000);
 
@@ -234,6 +286,10 @@ function abrirModalConfigUsuario() {
                 document.getElementById('cfg-umbral-fuerte').value = c.umbral_fuerte ?? 1.5;
                 document.getElementById('cfg-umbral-normal').value = c.umbral_normal ?? 2.0;
                 document.getElementById('cfg-monto-minimo').value = c.monto_minimo ?? 0;
+                const elCom = document.getElementById('cfg-comision-broker');
+                if (elCom) elCom.value = c.comision_broker ?? 0.5;
+                const elCap = document.getElementById('cfg-capital-operacion');
+                if (elCap) elCap.value = c.capital_operacion ?? 500000;
                 document.getElementById('cfg-telegram-chat').value = c.telegram_chat_id || '';
                 document.getElementById('cfg-telegram-on').checked = Boolean(c.telegram_on);
                 const darkCheck = document.getElementById('cfg-dark-mode');
@@ -295,6 +351,8 @@ function guardarConfigUsuario() {
         umbral_fuerte: parseFloat(document.getElementById('cfg-umbral-fuerte').value || 1.5),
         umbral_normal: parseFloat(document.getElementById('cfg-umbral-normal').value || 2.0),
         monto_minimo: parseFloat(document.getElementById('cfg-monto-minimo').value || 0),
+        comision_broker: parseFloat(document.getElementById('cfg-comision-broker')?.value || 0.5),
+        capital_operacion: parseFloat(document.getElementById('cfg-capital-operacion')?.value || 500000),
         telegram_chat_id: document.getElementById('cfg-telegram-chat').value.trim(),
         telegram_on: document.getElementById('cfg-telegram-on').checked,
         dark_mode: document.getElementById('cfg-dark-mode') ? document.getElementById('cfg-dark-mode').checked : false,
@@ -561,5 +619,299 @@ function sincronizarCatalogoByma() {
         .finally(() => {
             btn.disabled = false;
             btn.innerHTML = textoOriginal;
+        });
+}
+
+
+// =============================================================================
+// 8. MODAL DE SUSCRIPCIÓN PLAN PRO Y MERCADO PAGO
+// =============================================================================
+let modalSuscripcionObj = null;
+
+function abrirModalSuscripcion() {
+    const el = document.getElementById('modalSuscripcionPro');
+    if (!el) return;
+    if (!modalSuscripcionObj) {
+        modalSuscripcionObj = new bootstrap.Modal(el);
+    }
+    
+    const txtPlan = document.getElementById('txt-estado-actual-plan');
+    if (txtPlan) txtPlan.innerText = 'Cargando estado de tu plan...';
+
+    fetch('/api/status')
+        .then(res => res.json())
+        .then(d => {
+            if (txtPlan) {
+                if (d.plan === 'VIP') {
+                    txtPlan.innerText = '🌟 Tu cuenta es Administrador VIP permanente.';
+                } else if (d.plan === 'PRO') {
+                    txtPlan.innerText = `💎 Tenés Plan PRO Activo (${d.dias_restantes} días restantes). Podés renovar cuando quieras.`;
+                } else if (d.plan === 'TRIAL') {
+                    txtPlan.innerText = `⏱️ Estás en período de prueba TRIAL (${d.dias_restantes} días restantes). ¡Aprovechá la promo a $10.000 ARS!`;
+                } else {
+                    txtPlan.innerText = '🔒 Tu plan actual es FREE (limitado a 10 especies). Pasate a PRO para acceso total.';
+                }
+            }
+        })
+        .catch(() => {
+            if (txtPlan) txtPlan.innerText = 'Plan PRO por $10.000 ARS / mes.';
+        });
+
+    modalSuscripcionObj.show();
+}
+
+function iniciarPagoMercadoPago() {
+    const btn = document.getElementById('btn-iniciar-pago-mp');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Generando checkout seguro...';
+
+    fetch('/api/pagos/crear-preferencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'ok' && data.preference && data.preference.init_point) {
+                // Redirigir a Mercado Pago Checkout Pro
+                window.location.href = data.preference.init_point;
+            } else {
+                alert('No se pudo generar el pago: ' + (data.message || 'Error desconocido'));
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        })
+        .catch(err => {
+            console.error('Error al iniciar pago MP:', err);
+            alert('Error de conexión al procesar el pago.');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        });
+}
+
+// =============================================================================
+// 9. CALCULADORA NETA DE ARBITRAJE INTERACTIVA
+// =============================================================================
+let modalCalculadoraObj = null;
+let calcEstado = {
+    simbolo: '',
+    tipo: '',
+    p_in: 0,
+    p_out: 0,
+    var_bruta: 0
+};
+
+function abrirCalculadora(simbolo, tipo, p_in, p_out, var_bruta, var_neta, monto) {
+    const el = document.getElementById('modalCalculadora');
+    if (!el) return;
+    if (!modalCalculadoraObj) {
+        modalCalculadoraObj = new bootstrap.Modal(el);
+    }
+
+    calcEstado.simbolo = simbolo;
+    calcEstado.tipo = tipo;
+    calcEstado.p_in = parseFloat(p_in) || 0;
+    calcEstado.p_out = parseFloat(p_out) || 0;
+    calcEstado.var_bruta = parseFloat(var_bruta) || 0;
+
+    const elSimbolo = document.getElementById('calc-simbolo');
+    if (elSimbolo) elSimbolo.innerText = simbolo;
+
+    const badgeTipo = document.getElementById('calc-tipo');
+    if (badgeTipo) {
+        badgeTipo.innerText = tipo.replace('_', ' ');
+        badgeTipo.className = `badge lbl-base ${tipo} ms-2`;
+    }
+
+    const elGapBruto = document.getElementById('calc-gap-bruto');
+    if (elGapBruto) {
+        elGapBruto.innerText = (calcEstado.var_bruta >= 0 ? '+' : '') + calcEstado.var_bruta.toFixed(2) + '%';
+    }
+
+    const elPin = document.getElementById('calc-p-in');
+    if (elPin) elPin.value = calcEstado.p_in > 0 ? '$' + calcEstado.p_in.toFixed(2) : '-';
+
+    const elPout = document.getElementById('calc-p-out');
+    if (elPout) elPout.value = calcEstado.p_out > 0 ? '$' + calcEstado.p_out.toFixed(2) : '-';
+
+    const cfgComision = parseFloat(document.getElementById('cfg-comision-broker')?.value || 0.5);
+    const cfgCapital = parseFloat(document.getElementById('cfg-capital-operacion')?.value || 500000);
+
+    const inputComision = document.getElementById('calc-comision');
+    if (inputComision) inputComision.value = cfgComision;
+
+    const inputCapital = document.getElementById('calc-capital');
+    if (inputCapital) inputCapital.value = cfgCapital;
+
+    recalcularModalCalculadora();
+    modalCalculadoraObj.show();
+}
+
+function recalcularModalCalculadora() {
+    const capital = parseFloat(document.getElementById('calc-capital')?.value || 0);
+    const comisionTramo = parseFloat(document.getElementById('calc-comision')?.value || 0);
+
+    const comisionTotalPct = comisionTramo * 2.0; // Entrada CI + Salida 24h
+    const gapNetoPct = calcEstado.var_bruta - comisionTotalPct;
+
+    const costoComisionesPesos = capital * (comisionTotalPct / 100.0);
+    const gananciaNetaPesos = capital * (gapNetoPct / 100.0);
+
+    const elCosto = document.getElementById('calc-costo-comisiones');
+    if (elCosto) elCosto.innerText = `-$${Math.round(costoComisionesPesos).toLocaleString('es-AR')} (${comisionTotalPct.toFixed(2)}%)`;
+
+    const elGapNeto = document.getElementById('calc-gap-neto');
+    if (elGapNeto) {
+        elGapNeto.innerText = `${gapNetoPct >= 0 ? '+' : ''}${gapNetoPct.toFixed(2)}%`;
+        elGapNeto.className = gapNetoPct > 0 ? 'fw-bold text-success' : 'fw-bold text-danger';
+    }
+
+    const elGanancia = document.getElementById('calc-ganancia-neta');
+    if (elGanancia) {
+        if (gananciaNetaPesos > 0) {
+            elGanancia.innerText = `+$${Math.round(gananciaNetaPesos).toLocaleString('es-AR')} ARS`;
+            elGanancia.className = 'fs-4 fw-bold text-success';
+        } else {
+            elGanancia.innerText = `-$${Math.abs(Math.round(gananciaNetaPesos)).toLocaleString('es-AR')} ARS`;
+            elGanancia.className = 'fs-4 fw-bold text-danger';
+        }
+    }
+}
+
+function guardarCapitalCalculadora() {
+    const cap = parseFloat(document.getElementById('calc-capital')?.value || 500000);
+    const com = parseFloat(document.getElementById('calc-comision')?.value || 0.5);
+
+    const cfgCap = document.getElementById('cfg-capital-operacion');
+    const cfgCom = document.getElementById('cfg-comision-broker');
+    if (cfgCap) cfgCap.value = cap;
+    if (cfgCom) cfgCom.value = com;
+
+    guardarConfigUsuario();
+    alert(`Se guardó tu capital de $${cap.toLocaleString('es-AR')} y comisión de ${com}% como tus valores predeterminados.`);
+}
+
+// =============================================================================
+// 10. PANEL DE ADMINISTRACIÓN (USUARIOS Y AUDITORÍA DE PAGOS)
+// =============================================================================
+let modalAdminObj = null;
+
+function abrirModalAdmin() {
+    const el = document.getElementById('modalAdmin');
+    if (!el) return;
+    if (!modalAdminObj) {
+        modalAdminObj = new bootstrap.Modal(el);
+    }
+    modalAdminObj.show();
+    cargarDatosAdmin();
+}
+
+function cargarDatosAdmin() {
+    const tbodyUsers = document.getElementById('tbody-admin-usuarios');
+    const tbodyPagos = document.getElementById('tbody-admin-pagos');
+    if (tbodyUsers) tbodyUsers.innerHTML = '<tr><td colspan="8" class="text-center py-3 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Cargando usuarios...</td></tr>';
+    if (tbodyPagos) tbodyPagos.innerHTML = '<tr><td colspan="6" class="text-center py-3 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Cargando pagos...</td></tr>';
+
+    fetch('/api/admin/datos')
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== 'ok') {
+                if (tbodyUsers) tbodyUsers.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-3">${data.message || 'Error'}</td></tr>`;
+                return;
+            }
+
+            const totalU = document.getElementById('admin-total-usuarios');
+            if (totalU) totalU.innerText = data.total_usuarios || (data.usuarios ? data.usuarios.length : 0);
+
+            const totalP = document.getElementById('admin-total-pagos');
+            if (totalP) totalP.innerText = data.total_pagos || (data.pagos ? data.pagos.length : 0);
+
+            // Render usuarios
+            if (tbodyUsers) {
+                if (!data.usuarios || data.usuarios.length === 0) {
+                    tbodyUsers.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No hay usuarios registrados.</td></tr>';
+                } else {
+                    let htmlU = '';
+                    data.usuarios.forEach(u => {
+                        let badgePlan = 'bg-secondary';
+                        if (u.plan === 'VIP') badgePlan = 'bg-warning text-dark';
+                        else if (u.plan === 'PRO') badgePlan = 'bg-success';
+                        else if (u.plan === 'TRIAL') badgePlan = 'bg-info text-dark';
+
+                        htmlU += `
+                            <tr>
+                                <td>${u.id}</td>
+                                <td class="fw-bold">${u.username}</td>
+                                <td>${u.email || '-'}</td>
+                                <td><span class="badge ${badgePlan}">${u.plan}</span></td>
+                                <td>${u.dias_restantes !== undefined ? u.dias_restantes + 'd' : '-'}</td>
+                                <td>${u.telegram_on ? '🟢 Activo' : '⚪ Inactivo'}</td>
+                                <td>${u.is_admin ? '<span class="badge bg-dark">Admin</span>' : '<span class="text-muted">Trader</span>'}</td>
+                                <td class="text-center">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-outline-success py-0" onclick="cambiarPlanUsuarioAdmin(${u.id}, 'PRO', 30)" title="Dar 30 días PRO">+30d PRO</button>
+                                        <button class="btn btn-outline-warning py-0 text-dark" onclick="cambiarPlanUsuarioAdmin(${u.id}, 'VIP', 365)" title="Dar VIP permanente">VIP</button>
+                                        <button class="btn btn-outline-secondary py-0" onclick="cambiarPlanUsuarioAdmin(${u.id}, 'FREE', 0)" title="Bajar a FREE">FREE</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    tbodyUsers.innerHTML = htmlU;
+                }
+            }
+
+            // Render pagos
+            if (tbodyPagos) {
+                if (!data.pagos || data.pagos.length === 0) {
+                    tbodyPagos.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No hay registros de pagos aún.</td></tr>';
+                } else {
+                    let htmlP = '';
+                    data.pagos.forEach(p => {
+                        let badgeSt = p.status === 'approved' ? 'bg-success' : (p.status === 'pending' ? 'bg-warning text-dark' : 'bg-danger');
+                        htmlP += `
+                            <tr>
+                                <td>${p.id}</td>
+                                <td><strong>${p.username || 'User #' + p.user_id}</strong> <small class="text-muted">(${p.email || ''})</small></td>
+                                <td class="fw-bold text-success">$${Number(p.amount || 0).toLocaleString('es-AR')}</td>
+                                <td><span class="badge ${badgeSt}">${p.status}</span></td>
+                                <td>${p.created_at || '-'}</td>
+                                <td><small class="text-muted">${p.mp_payment_id || p.external_reference || '-'}</small></td>
+                            </tr>
+                        `;
+                    });
+                    tbodyPagos.innerHTML = htmlP;
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Error cargando datos admin:', err);
+            if (tbodyUsers) tbodyUsers.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Error de red cargando datos de administración.</td></tr>';
+        });
+}
+
+function cambiarPlanUsuarioAdmin(userId, plan, dias) {
+    if (!confirm(`¿Confirmás cambiar al usuario #${userId} al plan ${plan} por ${dias} días?`)) return;
+
+    fetch('/api/admin/usuario/cambiar-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, plan: plan, dias: dias })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                cargarDatosAdmin();
+                // Si el usuario modificado es el actual, refrescamos status
+                fetch('/api/status')
+                    .then(res => res.json())
+                    .then(d => actualizarEstadoVisual(d.running, d.provider, d.error, d.active_species, d.market_status, d.market_open, d.plan, d.dias_restantes, d.es_pro));
+            } else {
+                alert(data.message || 'Error al cambiar plan');
+            }
+        })
+        .catch(err => {
+            console.error('Error cambiando plan:', err);
+            alert('Error de conexión al cambiar plan.');
         });
 }

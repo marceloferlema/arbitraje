@@ -2,11 +2,13 @@ import os
 import sqlite3
 import threading
 import requests
+from datetime import datetime, timezone, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "arbitraje.db")
-_db_lock = threading.Lock()
+_db_lock = threading.RLock()
+TZ_ARGENTINA = timezone(timedelta(hours=-3), name="ART")
 
 
 def get_db_connection():
@@ -20,16 +22,16 @@ def get_db_connection():
 
 def init_db():
     """
-    Inicializa el esquema relacional multi-usuario (users, instruments, user_species),
-    aplica migraciones de seguridad (password_hash, is_admin, telegram_on) y
-    siembra el usuario administrador y las especies iniciales si no existen.
+    Inicializa el esquema relacional multi-usuario (users, instruments, user_species, payments, daily_top_opportunities),
+    aplica migraciones de seguridad y monetización (plan, plan_expires_at, comision_broker, capital_operacion),
+    y siembra el usuario administrador y las especies iniciales si no existen.
     """
     with _db_lock:
         conn = get_db_connection()
         try:
             cur = conn.cursor()
 
-            # 1. Tabla de Usuarios (Login seguro con hash criptográfico + configuración individual)
+            # 1. Tabla de Usuarios (Login seguro + Monetización SaaS + Config individual)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +39,10 @@ def init_db():
                     email TEXT UNIQUE,
                     password_hash TEXT,
                     is_admin INTEGER DEFAULT 0,
+                    plan TEXT DEFAULT 'TRIAL',
+                    plan_expires_at TIMESTAMP,
+                    comision_broker REAL DEFAULT 0.50,
+                    capital_operacion REAL DEFAULT 1000000.0,
                     umbral_fuerte REAL DEFAULT 1.5,
                     umbral_normal REAL DEFAULT 2.0,
                     monto_minimo REAL DEFAULT 0.0,
@@ -48,11 +54,19 @@ def init_db():
                 );
             """)
 
-            # Migraciones seguras si la tabla ya existía sin is_admin, telegram_on o dark_mode
+            # Migraciones seguras para columnas añadidas con el tiempo
             cur.execute("PRAGMA table_info(users);")
             columnas_users = {row["name"] for row in cur.fetchall()}
             if "is_admin" not in columnas_users:
                 cur.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0;")
+            if "plan" not in columnas_users:
+                cur.execute("ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'TRIAL';")
+            if "plan_expires_at" not in columnas_users:
+                cur.execute("ALTER TABLE users ADD COLUMN plan_expires_at TIMESTAMP;")
+            if "comision_broker" not in columnas_users:
+                cur.execute("ALTER TABLE users ADD COLUMN comision_broker REAL DEFAULT 0.50;")
+            if "capital_operacion" not in columnas_users:
+                cur.execute("ALTER TABLE users ADD COLUMN capital_operacion REAL DEFAULT 1000000.0;")
             if "telegram_on" not in columnas_users:
                 cur.execute("ALTER TABLE users ADD COLUMN telegram_on INTEGER DEFAULT 0;")
             if "dark_mode" not in columnas_users:
@@ -84,15 +98,51 @@ def init_db():
                 );
             """)
 
-            # Aseguramos que exista el usuario administrador por defecto (id=1, username='admin')
+            # 4. Tabla de Pagos y Suscripciones (Mercado Pago Checkout Pro)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    external_reference TEXT,
+                    mp_payment_id TEXT UNIQUE,
+                    mp_preference_id TEXT,
+                    plan_code TEXT DEFAULT 'PRO',
+                    amount REAL NOT NULL,
+                    currency TEXT DEFAULT 'ARS',
+                    status TEXT NOT NULL,
+                    payer_email TEXT,
+                    raw_payload TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+            """)
+
+            # 5. Tabla de Mejores Oportunidades del Día (Prueba Social y Resumen)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS daily_top_opportunities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    simbolo TEXT NOT NULL,
+                    tipo TEXT NOT NULL,
+                    variacion REAL NOT NULL,
+                    t0 REAL NOT NULL,
+                    t1 REAL NOT NULL,
+                    monto REAL DEFAULT 0.0,
+                    fecha TEXT NOT NULL,
+                    hora TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
+            # Aseguramos que exista el usuario administrador por defecto (id=1, username='admin', plan='VIP')
             admin_default_pwd = getattr(Config, "ADMIN_PASSWORD", "admin123")
-            cur.execute("SELECT id, password_hash FROM users WHERE id = 1;")
+            cur.execute("SELECT id, password_hash, plan FROM users WHERE id = 1;")
             admin_row = cur.fetchone()
             if not admin_row:
                 pwd_hash = generate_password_hash(admin_default_pwd)
                 cur.execute("""
-                    INSERT INTO users (id, username, email, password_hash, is_admin, umbral_fuerte, umbral_normal, monto_minimo)
-                    VALUES (1, 'admin', 'admin@local', ?, 1, ?, ?, ?);
+                    INSERT INTO users (id, username, email, password_hash, is_admin, plan, umbral_fuerte, umbral_normal, monto_minimo)
+                    VALUES (1, 'admin', 'admin@local', ?, 1, 'VIP', ?, ?, ?);
                 """, (
                     pwd_hash,
                     getattr(Config, "UMBRAL_FUERTE", 1.5),
@@ -103,11 +153,11 @@ def init_db():
                 if not admin_row["password_hash"]:
                     pwd_hash = generate_password_hash(admin_default_pwd)
                     cur.execute(
-                        "UPDATE users SET password_hash = ?, is_admin = 1 WHERE id = 1;",
+                        "UPDATE users SET password_hash = ?, is_admin = 1, plan = 'VIP' WHERE id = 1;",
                         (pwd_hash,)
                     )
                 else:
-                    cur.execute("UPDATE users SET is_admin = 1 WHERE id = 1;")
+                    cur.execute("UPDATE users SET is_admin = 1, plan = 'VIP' WHERE id = 1;")
 
             # Si no hay instrumentos cargados aún, sembramos la lista inicial
             cur.execute("SELECT COUNT(*) as total FROM instruments;")
@@ -136,8 +186,118 @@ def init_db():
 
 
 # =============================================================================
-# AUTENTICACIÓN Y GESTIÓN DE USUARIOS
+# AUTENTICACIÓN, GESTIÓN DE USUARIOS Y PLANES SAAS
 # =============================================================================
+def parse_datetime_art(fecha_str):
+    """Parsea una fecha en texto a datetime consciente de zona horaria ART."""
+    if not fecha_str:
+        return None
+    try:
+        # Formatos comunes de SQLite
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(str(fecha_str).strip(), fmt)
+                return dt.replace(tzinfo=TZ_ARGENTINA)
+            except ValueError:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def verificar_estado_plan_db(user_dict):
+    """
+    Evalúa el estado del plan del usuario. Si un TRIAL o PRO venció,
+    actualiza atómicamente el plan a 'FREE' en SQLite.
+    Retorna user_dict enriquecido con: es_pro (bool), dias_restantes (int).
+    """
+    if not user_dict:
+        return user_dict
+
+    uid = user_dict["id"]
+    is_admin = bool(user_dict.get("is_admin"))
+    plan = (user_dict.get("plan") or "TRIAL").upper()
+    expires_str = user_dict.get("plan_expires_at")
+    ahora_art = datetime.now(timezone.utc).astimezone(TZ_ARGENTINA)
+
+    if is_admin or plan == "VIP":
+        user_dict["plan"] = "VIP"
+        user_dict["es_pro"] = True
+        user_dict["dias_restantes"] = 9999
+        return user_dict
+
+    if plan in ("PRO", "TRIAL"):
+        if expires_str:
+            dt_exp = parse_datetime_art(expires_str)
+            if dt_exp:
+                if dt_exp < ahora_art:
+                    # Venció el plan: degradar a FREE
+                    with _db_lock:
+                        conn = get_db_connection()
+                        try:
+                            cur = conn.cursor()
+                            cur.execute("UPDATE users SET plan = 'FREE' WHERE id = ?;", (uid,))
+                            conn.commit()
+                        finally:
+                            conn.close()
+                    user_dict["plan"] = "FREE"
+                    user_dict["es_pro"] = False
+                    user_dict["dias_restantes"] = 0
+                    return user_dict
+                else:
+                    diff_dias = (dt_exp.date() - ahora_art.date()).days
+                    user_dict["es_pro"] = True
+                    user_dict["dias_restantes"] = max(0, diff_dias)
+                    return user_dict
+
+        # Si no tenía fecha válida en TRIAL, pasa a FREE
+        user_dict["plan"] = "FREE"
+        user_dict["es_pro"] = False
+        user_dict["dias_restantes"] = 0
+        return user_dict
+
+    user_dict["plan"] = "FREE"
+    user_dict["es_pro"] = False
+    user_dict["dias_restantes"] = 0
+    return user_dict
+
+
+def actualizar_plan_usuario(user_id, nuevo_plan, dias=30):
+    """
+    Actualiza el plan de un usuario.
+    Si nuevo_plan == 'PRO', extiende 30 días a partir de hoy (o del vencimiento si aún estaba vigente).
+    """
+    plan_clean = (nuevo_plan or "FREE").strip().upper()
+    ahora_art = datetime.now(timezone.utc).astimezone(TZ_ARGENTINA)
+
+    with _db_lock:
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT plan, plan_expires_at FROM users WHERE id = ?;", (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+
+            if plan_clean == "VIP":
+                cur.execute("UPDATE users SET plan = 'VIP', plan_expires_at = NULL WHERE id = ?;", (user_id,))
+            elif plan_clean == "FREE":
+                cur.execute("UPDATE users SET plan = 'FREE', plan_expires_at = NULL WHERE id = ?;", (user_id,))
+            elif plan_clean in ("PRO", "TRIAL"):
+                fecha_base = ahora_art
+                actual_exp = parse_datetime_art(row["plan_expires_at"])
+                if actual_exp and actual_exp > ahora_art and row["plan"] in ("PRO", "TRIAL"):
+                    fecha_base = actual_exp
+                nueva_exp = fecha_base + timedelta(days=dias)
+                nueva_exp_str = nueva_exp.strftime('%Y-%m-%d %H:%M:%S')
+                cur.execute("UPDATE users SET plan = ?, plan_expires_at = ? WHERE id = ?;", (plan_clean, nueva_exp_str, user_id))
+
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+
 def autenticar_usuario(username, password):
     """
     Verifica las credenciales del usuario contra el hash criptográfico almacenado en SQLite.
@@ -151,8 +311,8 @@ def autenticar_usuario(username, password):
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, username, email, password_hash, is_admin,
-                   umbral_fuerte, umbral_normal, monto_minimo,
+            SELECT id, username, email, password_hash, is_admin, plan, plan_expires_at,
+                   comision_broker, capital_operacion, umbral_fuerte, umbral_normal, monto_minimo,
                    telegram_chat_id, telegram_on, dark_mode, is_active
             FROM users
             WHERE LOWER(username) = LOWER(?);
@@ -164,7 +324,7 @@ def autenticar_usuario(username, password):
             return None
         d = dict(row)
         d.pop("password_hash", None)
-        return d
+        return verificar_estado_plan_db(d)
     finally:
         conn.close()
 
@@ -175,22 +335,44 @@ def obtener_usuario_por_id(user_id):
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, username, email, is_admin,
-                   umbral_fuerte, umbral_normal, monto_minimo,
+            SELECT id, username, email, is_admin, plan, plan_expires_at,
+                   comision_broker, capital_operacion, umbral_fuerte, umbral_normal, monto_minimo,
                    telegram_chat_id, telegram_on, dark_mode, is_active, created_at
             FROM users
             WHERE id = ? AND is_active = 1;
         """, (user_id,))
         row = cur.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        return verificar_estado_plan_db(dict(row))
+    finally:
+        conn.close()
+
+
+def obtener_usuario_por_username(username):
+    """Devuelve los datos y configuración de un usuario por su username (sin password_hash)."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, username, email, is_admin, plan, plan_expires_at,
+                   comision_broker, capital_operacion, umbral_fuerte, umbral_normal, monto_minimo,
+                   telegram_chat_id, telegram_on, dark_mode, is_active, created_at
+            FROM users
+            WHERE username = ? AND is_active = 1;
+        """, (username,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return verificar_estado_plan_db(dict(row))
     finally:
         conn.close()
 
 
 def crear_usuario(username, password, email=None, is_admin=0):
     """
-    Crea un nuevo usuario con contraseña hasheada y le asigna como plantilla inicial
-    las especies base para que pueda empezar a monitorear y personalizar su lista.
+    Crea un nuevo usuario con contraseña hasheada y le asigna el plan TRIAL (5 días gratis)
+    junto a las especies base de plantilla.
     Devuelve (ok: bool, resultado_o_error: dict|str).
     """
     username_clean = (username or "").strip()
@@ -202,6 +384,12 @@ def crear_usuario(username, password, email=None, is_admin=0):
     email_clean = (email or "").strip() or None
     pwd_hash = generate_password_hash(password)
 
+    trial_dias = getattr(Config, "TRIAL_DIAS", 5)
+    ahora_art = datetime.now(timezone.utc).astimezone(TZ_ARGENTINA)
+    expires_at = (ahora_art + timedelta(days=trial_dias)).strftime('%Y-%m-%d %H:%M:%S')
+    plan_inicial = "VIP" if is_admin else "TRIAL"
+    plan_exp = None if is_admin else expires_at
+
     with _db_lock:
         conn = get_db_connection()
         try:
@@ -211,13 +399,16 @@ def crear_usuario(username, password, email=None, is_admin=0):
                 return False, "Ese nombre de usuario ya está registrado."
 
             cur.execute("""
-                INSERT INTO users (username, email, password_hash, is_admin, umbral_fuerte, umbral_normal, monto_minimo)
-                VALUES (?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO users (username, email, password_hash, is_admin, plan, plan_expires_at,
+                                   comision_broker, capital_operacion, umbral_fuerte, umbral_normal, monto_minimo)
+                VALUES (?, ?, ?, ?, ?, ?, 0.50, 1000000.0, ?, ?, ?);
             """, (
                 username_clean,
                 email_clean,
                 pwd_hash,
                 1 if is_admin else 0,
+                plan_inicial,
+                plan_exp,
                 getattr(Config, "UMBRAL_FUERTE", 1.5),
                 getattr(Config, "UMBRAL_VARIACION", 2.0),
                 getattr(Config, "MONTO_MINIMO_OPERABLE", 0.0)
@@ -238,6 +429,9 @@ def crear_usuario(username, password, email=None, is_admin=0):
             return True, {
                 "id": new_user_id,
                 "username": username_clean,
+                "email": email_clean,
+                "plan": plan_inicial,
+                "plan_expires_at": plan_exp,
                 "is_admin": 1 if is_admin else 0
             }
         except Exception as e:
@@ -246,8 +440,9 @@ def crear_usuario(username, password, email=None, is_admin=0):
             conn.close()
 
 
-def actualizar_config_usuario(user_id, umbral_fuerte, umbral_normal, monto_minimo, telegram_chat_id=None, telegram_on=0, dark_mode=None, nueva_password=None):
-    """Actualiza los parámetros de umbral, volumen mínimo, Telegram, modo oscuro y opcionalmente la contraseña del usuario."""
+def actualizar_config_usuario(user_id, umbral_fuerte, umbral_normal, monto_minimo, telegram_chat_id=None,
+                               telegram_on=0, dark_mode=None, comision_broker=None, capital_operacion=None, nueva_password=None):
+    """Actualiza los parámetros de umbral, comisiones, capital de cálculo, Telegram y opcionalmente password."""
     with _db_lock:
         conn = get_db_connection()
         try:
@@ -272,6 +467,12 @@ def actualizar_config_usuario(user_id, umbral_fuerte, umbral_normal, monto_minim
             if dark_mode is not None:
                 cur.execute("UPDATE users SET dark_mode = ? WHERE id = ?;", (1 if dark_mode else 0, int(user_id)))
 
+            if comision_broker is not None:
+                cur.execute("UPDATE users SET comision_broker = ? WHERE id = ?;", (float(comision_broker), int(user_id)))
+
+            if capital_operacion is not None:
+                cur.execute("UPDATE users SET capital_operacion = ? WHERE id = ?;", (float(capital_operacion), int(user_id)))
+
             if nueva_password and len(nueva_password.strip()) >= 6:
                 pwd_hash = generate_password_hash(nueva_password.strip())
                 cur.execute("UPDATE users SET password_hash = ? WHERE id = ?;", (pwd_hash, int(user_id)))
@@ -280,6 +481,154 @@ def actualizar_config_usuario(user_id, umbral_fuerte, umbral_normal, monto_minim
             return True
         finally:
             conn.close()
+
+
+# =============================================================================
+# PAGOS Y MERCADO PAGO
+# =============================================================================
+def crear_registro_pago(user_id, external_reference, mp_preference_id, amount, plan_code="PRO"):
+    """Registra una orden de pago pendiente en la tabla payments."""
+    with _db_lock:
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO payments (user_id, external_reference, mp_preference_id, plan_code, amount, status)
+                VALUES (?, ?, ?, ?, ?, 'pending');
+            """, (user_id, external_reference, mp_preference_id, plan_code, float(amount)))
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
+
+
+def actualizar_pago_aprobado(mp_payment_id, external_reference, payer_email=None, raw_payload=""):
+    """
+    Marca un pago como aprobado ('approved') e impacta en la suscripción del usuario sumando 30 días.
+    Retorna (ok: bool, user_id: int).
+    """
+    with _db_lock:
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, user_id, status 
+                FROM payments 
+                WHERE (mp_payment_id IS NOT NULL AND mp_payment_id = ?) 
+                   OR (external_reference IS NOT NULL AND external_reference = ?)
+                ORDER BY id DESC;
+            """, (str(mp_payment_id), str(external_reference)))
+            row = cur.fetchone()
+            if not row:
+                return False, None
+
+            pago_id = row["id"]
+            user_id = row["user_id"]
+            status_previo = row["status"]
+
+            cur.execute("""
+                UPDATE payments
+                SET mp_payment_id = ?,
+                    status = 'approved',
+                    payer_email = COALESCE(?, payer_email),
+                    raw_payload = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?;
+            """, (str(mp_payment_id), payer_email, str(raw_payload)[:1000], pago_id))
+            conn.commit()
+
+            # Si no estaba aprobado previamente, extendemos 30 días el plan PRO
+            if status_previo != "approved":
+                actualizar_plan_usuario(user_id, "PRO", dias=30)
+
+            return True, user_id
+        finally:
+            conn.close()
+
+
+def obtener_pagos_usuario(user_id):
+    """Devuelve el historial de pagos de un usuario."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, external_reference, mp_payment_id, plan_code, amount, currency, status, created_at
+            FROM payments
+            WHERE user_id = ?
+            ORDER BY id DESC;
+        """, (user_id,))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def listar_todos_los_pagos():
+    """Devuelve todos los pagos registrados en la plataforma (vista admin)."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.*, u.username, u.email
+            FROM payments p
+            JOIN users u ON p.user_id = u.id
+            ORDER BY p.id DESC
+            LIMIT 100;
+        """)
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+# =============================================================================
+# TOP OPORTUNIDADES DEL DÍA (PRUEBA SOCIAL / RESUMEN)
+# =============================================================================
+def guardar_top_opportunity(simbolo, tipo, variacion, t0, t1, monto=0.0):
+    """Registra una oportunidad destacada para el ranking del día."""
+    ahora_art = datetime.now(timezone.utc).astimezone(TZ_ARGENTINA)
+    fecha_hoy = ahora_art.strftime("%Y-%m-%d")
+    hora_str = ahora_art.strftime("%H:%M:%S")
+
+    with _db_lock:
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            # Evitar saturar si la misma oportunidad ya se registró en los últimos 3 minutos
+            cur.execute("""
+                SELECT id FROM daily_top_opportunities
+                WHERE simbolo = ? AND tipo = ? AND fecha = ?
+                ORDER BY id DESC LIMIT 1;
+            """, (simbolo, tipo, fecha_hoy))
+            if cur.fetchone():
+                return False
+
+            cur.execute("""
+                INSERT INTO daily_top_opportunities (simbolo, tipo, variacion, t0, t1, monto, fecha, hora)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """, (simbolo, tipo, float(variacion), float(t0), float(t1), float(monto), fecha_hoy, hora_str))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+
+def obtener_top_opportunities_hoy(limite=10):
+    """Devuelve las mejores oportunidades registradas en la fecha actual."""
+    ahora_art = datetime.now(timezone.utc).astimezone(TZ_ARGENTINA)
+    fecha_hoy = ahora_art.strftime("%Y-%m-%d")
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT simbolo, tipo, variacion, t0, t1, monto, hora
+            FROM daily_top_opportunities
+            WHERE fecha = ?
+            ORDER BY variacion DESC, monto DESC
+            LIMIT ?;
+        """, (fecha_hoy, limite))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
 
 
 def set_dark_mode_usuario(user_id, dark_mode):
@@ -296,12 +645,13 @@ def set_dark_mode_usuario(user_id, dark_mode):
 
 
 def listar_usuarios():
-    """Lista todos los usuarios registrados con la cantidad de especies que monitorea cada uno."""
+    """Lista todos los usuarios registrados con su plan, vencimiento y cantidad de especies monitoreadas."""
     conn = get_db_connection()
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT u.id, u.username, u.email, u.is_admin,
+            SELECT u.id, u.username, u.email, u.is_admin, u.plan, u.plan_expires_at,
+                   u.comision_broker, u.capital_operacion,
                    u.umbral_fuerte, u.umbral_normal, u.monto_minimo,
                    u.telegram_on, u.is_active, u.created_at,
                    COUNT(CASE WHEN us.monitorear = 1 THEN 1 END) AS especies_activas
@@ -310,7 +660,12 @@ def listar_usuarios():
             GROUP BY u.id
             ORDER BY u.id ASC;
         """)
-        return [dict(r) for r in cur.fetchall()]
+        resultado = []
+        for r in cur.fetchall():
+            u = dict(r)
+            u = verificar_estado_plan_db(u)
+            resultado.append(u)
+        return resultado
     finally:
         conn.close()
 
@@ -350,30 +705,44 @@ def obtener_perfiles_activos_motor():
     Carga para el motor en tiempo real:
     1. `all_tickers`: Unión de todas las especies con `monitorear = 1` entre todos los usuarios activos.
     2. `ticker_types`: Diccionario `{ticker: instrument_type}` de todo el catálogo.
-    3. `users`: Diccionario `{user_id: {id, username, umbral_fuerte, umbral_normal, monto_minimo, telegram_chat_id, telegram_on, tickers: set(), tickers_buy: set()}}`
+    3. `users`: Diccionario `{user_id: {id, username, plan, es_pro, comision_broker, capital_operacion, umbral_fuerte, umbral_normal, monto_minimo, telegram_chat_id, telegram_on, tickers: set(), tickers_buy: set()}}`
+    Aplica límites según el plan:
+    - Usuarios FREE: Máximo 10 especies monitoreadas y sin notificaciones Telegram.
+    - Usuarios PRO/TRIAL/VIP: Especies ilimitadas y Telegram habilitado.
     """
     conn = get_db_connection()
     try:
         cur = conn.cursor()
 
-        # 1. Cargamos todos los usuarios activos
+        # 1. Cargamos todos los usuarios activos y verificamos expiración de planes
         cur.execute("""
-            SELECT id, username, umbral_fuerte, umbral_normal, monto_minimo,
+            SELECT id, username, is_admin, plan, plan_expires_at,
+                   comision_broker, capital_operacion,
+                   umbral_fuerte, umbral_normal, monto_minimo,
                    telegram_chat_id, telegram_on
             FROM users
             WHERE is_active = 1;
         """)
         users_map = {}
         for u in cur.fetchall():
-            uid = u["id"]
+            u_dict = verificar_estado_plan_db(dict(u))
+            uid = u_dict["id"]
+            es_pro = bool(u_dict.get("es_pro", False))
+            plan = u_dict.get("plan", "FREE")
+
             users_map[uid] = {
                 "id": uid,
-                "username": u["username"],
-                "umbral_fuerte": float(u["umbral_fuerte"] if u["umbral_fuerte"] is not None else 1.5),
-                "umbral_normal": float(u["umbral_normal"] if u["umbral_normal"] is not None else 2.0),
-                "monto_minimo": float(u["monto_minimo"] if u["monto_minimo"] is not None else 0.0),
-                "telegram_chat_id": u["telegram_chat_id"] or "",
-                "telegram_on": bool(u["telegram_on"]),
+                "username": u_dict["username"],
+                "plan": plan,
+                "es_pro": es_pro,
+                "dias_restantes": u_dict.get("dias_restantes", 0),
+                "comision_broker": float(u_dict["comision_broker"] if u_dict.get("comision_broker") is not None else 0.50),
+                "capital_operacion": float(u_dict["capital_operacion"] if u_dict.get("capital_operacion") is not None else 1000000.0),
+                "umbral_fuerte": float(u_dict["umbral_fuerte"] if u_dict.get("umbral_fuerte") is not None else 1.5),
+                "umbral_normal": float(u_dict["umbral_normal"] if u_dict.get("umbral_normal") is not None else 2.0),
+                "monto_minimo": float(u_dict["monto_minimo"] if u_dict.get("monto_minimo") is not None else 0.0),
+                "telegram_chat_id": u_dict["telegram_chat_id"] or "",
+                "telegram_on": bool(u_dict["telegram_on"]) and es_pro,
                 "tickers": set(),
                 "tickers_buy": set()
             }
@@ -393,14 +762,24 @@ def obtener_perfiles_activos_motor():
         for r in cur.fetchall():
             uid = r["user_id"]
             ticker = r["ticker"]
-            all_tickers_set.add(ticker)
             ticker_types[ticker] = r["instrument_type"]
             if uid in users_map:
                 users_map[uid]["tickers"].add(ticker)
                 if r["solo_compra"]:
                     users_map[uid]["tickers_buy"].add(ticker)
 
-        # 3. Completamos los tipos de instrumentos conocidos del catálogo
+        # 3. Aplicar límite de 10 especies para usuarios en Plan FREE
+        max_free = getattr(Config, "MAX_ESPECIES_FREE", 10)
+        for uid, udata in users_map.items():
+            if not udata["es_pro"]:
+                if len(udata["tickers"]) > max_free:
+                    tickers_recortados = set(sorted(list(udata["tickers"]))[:max_free])
+                    udata["tickers"] = tickers_recortados
+                    udata["tickers_buy"] = udata["tickers_buy"].intersection(tickers_recortados)
+            # Acumulamos en all_tickers_set las que efectivamente monitorean
+            all_tickers_set.update(udata["tickers"])
+
+        # 4. Completamos los tipos de instrumentos conocidos del catálogo
         cur.execute("SELECT ticker, instrument_type FROM instruments;")
         for r in cur.fetchall():
             if r["ticker"] not in ticker_types:

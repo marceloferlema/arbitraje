@@ -19,6 +19,17 @@
                         <span class="badge bg-secondary bg-opacity-25 text-dark fs-6 ms-1 fw-normal" title="Sesión de usuario activa">
                             <i class="bi bi-person-circle"></i> <span id="badge-username">{{ current_user.username if current_user else 'admin' }}</span>
                         </span>
+                        <span id="badge-plan-container" class="ms-1">
+                            {% if current_user and current_user.plan == 'VIP' %}
+                                <span class="badge bg-warning text-dark"><i class="bi bi-star-fill"></i> VIP</span>
+                            {% elif current_user and current_user.plan == 'PRO' %}
+                                <span class="badge bg-success" role="button" onclick="abrirModalSuscripcion()"><i class="bi bi-gem"></i> PRO (<span id="txt-dias-plan">{{ current_user.dias_restantes }}d</span>)</span>
+                            {% elif current_user and current_user.plan == 'TRIAL' %}
+                                <span class="badge bg-info text-dark" role="button" onclick="abrirModalSuscripcion()"><i class="bi bi-clock-history"></i> TRIAL (<span id="txt-dias-plan">{{ current_user.dias_restantes }}d</span>) <span class="badge bg-warning text-dark ms-1">💎 $10.000</span></span>
+                            {% else %}
+                                <button class="btn btn-sm btn-warning fw-bold py-0 px-2" onclick="abrirModalSuscripcion()"><i class="bi bi-rocket-takeoff-fill"></i> 💎 Activar PRO ($10.000)</button>
+                            {% endif %}
+                        </span>
                     </h3>
                     <small class="text-muted" style="font-size: 0.8em;">
                         Motor: <span id="status-dot" class="status-dot"></span> 
@@ -33,6 +44,18 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-theme-toggle" onclick="toggleTheme()" title="Cambiar a Modo Oscuro / Claro">
                         <i class="bi {{ 'bi-sun-fill text-warning' if current_user and current_user.dark_mode else 'bi-moon-stars-fill text-dark' }}" id="icon-theme"></i>
                     </button>
+
+                    <!-- Botón Plan PRO / Suscripción -->
+                    <button type="button" class="btn btn-sm btn-outline-warning fw-bold" onclick="abrirModalSuscripcion()" title="Ver Planes y Suscripción PRO">
+                        <i class="bi bi-gem"></i> Plan PRO
+                    </button>
+
+                    <!-- Botón Admin (Solo si is_admin) -->
+                    {% if current_user and current_user.is_admin %}
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="abrirModalAdmin()" title="Panel de Administración y Suscripciones">
+                        <i class="bi bi-shield-lock-fill"></i> Admin
+                    </button>
+                    {% endif %}
 
                     <!-- Botón Configurador de Especies del Usuario -->
                     <button type="button" class="btn btn-sm btn-primary" onclick="abrirModalEspecies()" title="Elegir qué especies querés monitorear en tu sesión">
@@ -104,14 +127,17 @@
                 <div class="table-responsive">
                     <table class="table table-striped table-hover align-middle mb-0">
                         <thead class="table-dark">
-                            <tr style="font-size: 0.9em;">
+                            <tr style="font-size: 0.85em;">
                                 <th>Hora</th>
                                 <th>Ticker</th>
                                 <th class="text-center">Operación</th>
-                                <th class="text-end">Variación</th>
-                                <th class="text-end">CI (Punta In)</th>
-                                <th class="text-end">24h (Ref Out)</th>
-                                <th class="text-end">Volumen Disp.</th>
+                                <th class="text-end" title="Gap Bruto directo de puntas">Gap Bruto</th>
+                                <th class="text-end text-warning" title="Gap Neto descontando 2x comisiones de broker">Gap Neto</th>
+                                <th class="text-end">CI (In)</th>
+                                <th class="text-end">24h (Out)</th>
+                                <th class="text-end">Volumen</th>
+                                <th class="text-end text-success" title="Ganancia neta estimada en ARS para tu capital de operación">Ganancia Neta</th>
+                                <th class="text-center" style="width: 50px;">Calc</th>
                             </tr>
                         </thead>
                         <tbody id="tabla-cuerpo" style="font-size: 0.95em;">
@@ -257,6 +283,23 @@
                             <small class="text-muted" style="font-size: 0.75em;">Ignora puntas con un monto menor a este valor en pesos (0 = mostrar todas)</small>
                         </div>
                         <div class="col-12"><hr class="my-1"></div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" style="font-size: 0.85em;">📉 Comisión Broker por Tramo (%)</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" step="0.05" min="0" max="5" class="form-control" id="cfg-comision-broker" value="{{ current_user.comision_broker if current_user and current_user.comision_broker is defined else 0.5 }}">
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <small class="text-muted" style="font-size: 0.75em;">Se descuenta 2x (entrada y salida) para calcular Gap Neto</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" style="font-size: 0.85em;">💵 Capital de Operación ($ ARS)</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">$</span>
+                                <input type="number" step="50000" min="10000" class="form-control" id="cfg-capital-operacion" value="{{ current_user.capital_operacion if current_user and current_user.capital_operacion is defined else 500000 }}">
+                            </div>
+                            <small class="text-muted" style="font-size: 0.75em;">Base para estimar la ganancia neta en pesos</small>
+                        </div>
+                        <div class="col-12"><hr class="my-1"></div>
                         <div class="col-md-8">
                             <label class="form-label fw-semibold" style="font-size: 0.85em;">📲 Mi Telegram Chat ID (Opcional)</label>
                             <input type="text" class="form-control form-control-sm" id="cfg-telegram-chat" placeholder="Ej: 123456789" value="{{ current_user.telegram_chat_id if current_user and current_user.telegram_chat_id else '' }}">
@@ -291,8 +334,245 @@
         </div>
     </div>
 
+    <!-- MODAL 3: SUSCRIPCIÓN PLAN PRO (MERCADO PAGO) -->
+    <div class="modal fade" id="modalSuscripcionPro" tabindex="-1" aria-labelledby="modalSuscripcionProLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-gradient text-white" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
+                    <div>
+                        <h5 class="modal-title fs-5 fw-bold mb-0" id="modalSuscripcionProLabel">
+                            <i class="bi bi-gem text-warning me-2"></i> Potenciá tus Arbitrajes con Plan PRO
+                        </h5>
+                        <small class="text-white-50">Acceso institucional a las mejores ineficiencias de mercado BYMA en tiempo real</small>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <!-- Promo banner de lanzamiento -->
+                    <div class="alert alert-warning border-warning d-flex flex-wrap align-items-center justify-content-between p-3 mb-4 rounded-3 shadow-sm gap-2">
+                        <div>
+                            <span class="badge bg-danger text-uppercase px-2 py-1 mb-1">🔥 Promo Super Lanzamiento</span>
+                            <h4 class="alert-heading fw-bold mb-0 text-dark">
+                                <span class="text-decoration-line-through text-muted fs-6 me-2">$20.000 ARS</span>
+                                $10.000 ARS <span class="fs-6 text-muted fw-normal">/ mes</span>
+                            </h4>
+                            <small class="text-dark">¡50% de descuento por tiempo limitado! Renovación mensual sin permanencia.</small>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-success p-2 fs-6"><i class="bi bi-shield-check"></i> 5 Días Trial Gratis</span>
+                        </div>
+                    </div>
+
+                    <!-- Lista de Beneficios Comparativa -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <div class="card h-100 border">
+                                <div class="card-body">
+                                    <h6 class="fw-bold text-muted mb-3"><i class="bi bi-person me-1"></i> Plan FREE (Gratis)</h6>
+                                    <ul class="list-unstyled mb-0" style="font-size: 0.9em; line-height: 1.8;">
+                                        <li class="text-muted"><i class="bi bi-dash text-secondary me-2"></i> Máximo 10 especies activas</li>
+                                        <li class="text-danger"><i class="bi bi-x-circle me-2"></i> Puntas Fuertes bloqueadas (🔒 PRO)</li>
+                                        <li class="text-danger"><i class="bi bi-x-circle me-2"></i> Sin alertas a Telegram</li>
+                                        <li class="text-muted"><i class="bi bi-dash text-secondary me-2"></i> Calculadora básica</li>
+                                        <li class="text-danger"><i class="bi bi-x-circle me-2"></i> Sin reportes diarios de cierre</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card h-100 border-success shadow-sm" style="border-width: 2px;">
+                                <div class="card-body bg-success bg-opacity-10">
+                                    <h6 class="fw-bold text-success mb-3"><i class="bi bi-gem me-1"></i> Plan PRO Full</h6>
+                                    <ul class="list-unstyled mb-0" style="font-size: 0.9em; line-height: 1.8;">
+                                        <li class="fw-semibold"><i class="bi bi-check-circle-fill text-success me-2"></i> <strong>Todas las especies BYMA</strong> (Acciones, CEDEARs, Bonos, ONs, Letras)</li>
+                                        <li class="fw-semibold"><i class="bi bi-check-circle-fill text-success me-2"></i> <strong>Puntas Fuertes en vivo</strong> con precios exactos de ejecución</li>
+                                        <li class="fw-semibold"><i class="bi bi-check-circle-fill text-success me-2"></i> <strong>Alertas en Telegram</strong> directas a tu celular 24/7</li>
+                                        <li class="fw-semibold"><i class="bi bi-check-circle-fill text-success me-2"></i> <strong>Calculadora Neta con tus comisiones</strong> reales de broker</li>
+                                        <li class="fw-semibold"><i class="bi bi-check-circle-fill text-success me-2"></i> <strong>Top Oportunidades Diarias</strong> por email al cierre</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CTA Botón Mercado Pago -->
+                    <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-primary btn-lg fw-bold py-3 shadow" id="btn-iniciar-pago-mp" onclick="iniciarPagoMercadoPago()">
+                            <i class="bi bi-credit-card-2-front-fill me-2"></i> Suscribirme por $10.000 ARS / mes con Mercado Pago
+                        </button>
+                        <div class="d-flex justify-content-center align-items-center gap-2 mt-2 text-muted" style="font-size: 0.8em;">
+                            <span><i class="bi bi-lock-fill text-success"></i> Pago 100% Cifrado</span>
+                            <span>•</span>
+                            <span><i class="bi bi-lightning-charge-fill text-warning"></i> Activación Inmediata</span>
+                            <span>•</span>
+                            <span><i class="bi bi-arrow-repeat text-primary"></i> Tarjetas, Débito o Dinero en Cuenta MP</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 justify-content-between">
+                    <small class="text-muted" id="txt-estado-actual-plan">Verificando suscripción actual...</small>
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 4: CALCULADORA NETA DE ARBITRAJE -->
+    <div class="modal fade" id="modalCalculadora" tabindex="-1" aria-labelledby="modalCalculadoraLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg">
+                <div class="modal-header bg-dark text-white py-2">
+                    <h5 class="modal-title fs-6 fw-bold mb-0" id="modalCalculadoraLabel">
+                        <i class="bi bi-calculator me-1"></i> Calculadora Neta de Arbitraje
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                        <div>
+                            <span class="fs-5 fw-bold" id="calc-simbolo">-</span>
+                            <span class="badge bg-primary ms-2" id="calc-tipo">-</span>
+                        </div>
+                        <div class="text-end">
+                            <small class="text-muted d-block" style="font-size: 0.75em;">Gap Bruto</small>
+                            <span class="fw-bold fs-6 text-primary" id="calc-gap-bruto">0.0%</span>
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label text-muted mb-0" style="font-size: 0.8em;">Precio Entrada CI (In)</label>
+                            <input type="text" class="form-control form-control-sm fw-semibold" id="calc-p-in" readonly>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label text-muted mb-0" style="font-size: 0.8em;">Precio Salida 24h (Out)</label>
+                            <input type="text" class="form-control form-control-sm fw-semibold" id="calc-p-out" readonly>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold mb-0" style="font-size: 0.8em;">Capital a Operar ($ ARS)</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">$</span>
+                                <input type="number" step="10000" min="1000" class="form-control" id="calc-capital" oninput="recalcularModalCalculadora()">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold mb-0" style="font-size: 0.8em;">Comisión Broker (x tramo)</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" step="0.05" min="0" max="5" class="form-control" id="calc-comision" oninput="recalcularModalCalculadora()">
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Resumen Financiero en Tarjeta -->
+                    <div class="card bg-body-tertiary border-0 rounded-3 p-3">
+                        <div class="d-flex justify-content-between mb-1" style="font-size: 0.85em;">
+                            <span class="text-muted">Costo 2x Comisiones Broker:</span>
+                            <span class="fw-semibold text-danger" id="calc-costo-comisiones">-$0</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1" style="font-size: 0.85em;">
+                            <span class="text-muted">Gap Neto de Margen:</span>
+                            <span class="fw-bold" id="calc-gap-neto">0.0%</span>
+                        </div>
+                        <hr class="my-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="fw-bold">Ganancia Neta Estimada:</span>
+                            <span class="fs-4 fw-bold text-success" id="calc-ganancia-neta">+$0</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 d-flex justify-content-between">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="guardarCapitalCalculadora()">
+                        <i class="bi bi-bookmark-check"></i> Guardar como mi capital habitual
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" data-bs-dismiss="modal">Aceptar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 5: PANEL ADMINISTRADOR (SOLO ADMIN) -->
+    {% if current_user and current_user.is_admin %}
+    <div class="modal fade" id="modalAdmin" tabindex="-1" aria-labelledby="modalAdminLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content shadow-lg">
+                <div class="modal-header bg-dark text-white py-2">
+                    <h5 class="modal-title fs-6 fw-bold mb-0" id="modalAdminLabel">
+                        <i class="bi bi-shield-lock-fill text-danger me-2"></i> Panel de Administración - Usuarios y Suscripciones
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <ul class="nav nav-tabs mb-3" id="adminTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active fw-semibold" id="tab-usuarios-btn" data-bs-toggle="tab" data-bs-target="#tab-admin-usuarios" type="button" role="tab">
+                                <i class="bi bi-people-fill me-1"></i> Usuarios Registrados (<span id="admin-total-usuarios">0</span>)
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link fw-semibold" id="tab-pagos-btn" data-bs-toggle="tab" data-bs-target="#tab-admin-pagos" type="button" role="tab">
+                                <i class="bi bi-cash-stack me-1"></i> Auditoría de Pagos MP (<span id="admin-total-pagos">0</span>)
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content" id="adminTabContent">
+                        <!-- Tab 1: Usuarios -->
+                        <div class="tab-pane fade show active" id="tab-admin-usuarios" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85em;">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Usuario</th>
+                                            <th>Email</th>
+                                            <th>Plan Actual</th>
+                                            <th>Días Restantes</th>
+                                            <th>Telegram</th>
+                                            <th>Rol</th>
+                                            <th class="text-center">Cambiar Plan</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody-admin-usuarios">
+                                        <tr><td colspan="8" class="text-center py-3 text-muted">Cargando usuarios...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: Pagos -->
+                        <div class="tab-pane fade" id="tab-admin-pagos" role="tabpanel">
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85em;">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Usuario</th>
+                                            <th>Monto ($ ARS)</th>
+                                            <th>Estado</th>
+                                            <th>Fecha</th>
+                                            <th>Ref / MP ID</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody-admin-pagos">
+                                        <tr><td colspan="6" class="text-center py-3 text-muted">Cargando pagos...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cargarDatosAdmin()"><i class="bi bi-arrow-clockwise"></i> Refrescar</button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}?v=2.2"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=3.0"></script>
 </body>
 </html>
