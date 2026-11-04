@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Bot Arbitraje BYMA - Acceso</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="bg-light d-flex align-items-center justify-content-center" style="min-height: 100vh;">
+    <div class="container" style="max-width: 440px;">
+        <div class="card shadow border-0">
+            <div class="card-header bg-dark text-white text-center py-3">
+                <h4 class="mb-0"><i class="bi bi-lightning-charge-fill text-warning"></i> Monitor Arbitraje PPI</h4>
+                <small class="text-white-50">Plataforma Multi-Usuario en Tiempo Real</small>
+            </div>
+            <div class="card-body p-4">
+                {% if error %}
+                <div class="alert alert-danger py-2" style="font-size: 0.9em;">
+                    <i class="bi bi-exclamation-octagon-fill me-1"></i> {{ error }}
+                </div>
+                {% endif %}
+
+                <!-- Pestañas Login / Registro -->
+                <ul class="nav nav-pills nav-fill mb-3" id="authTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link {% if active_tab != 'register' %}active{% endif %} py-1" id="tab-login" data-bs-toggle="pill" data-bs-target="#pane-login" type="button" role="tab">
+                            <i class="bi bi-box-arrow-in-right me-1"></i> Ingresar
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link {% if active_tab == 'register' %}active{% endif %} py-1" id="tab-register" data-bs-toggle="pill" data-bs-target="#pane-register" type="button" role="tab">
+                            <i class="bi bi-person-plus-fill me-1"></i> Crear Cuenta
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- FORMULARIO LOGIN -->
+                    <div class="tab-pane fade {% if active_tab != 'register' %}show active{% endif %}" id="pane-login" role="tabpanel">
+                        <form method="POST" action="{{ url_for('main.login_page') }}">
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold" style="font-size: 0.9em;">Usuario</label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-person-fill"></i></span>
+                                    <input type="text" name="username" class="form-control" placeholder="Ej: admin" value="{{ last_username or '' }}" required autofocus>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold" style="font-size: 0.9em;">Contraseña</label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                                    <input type="password" name="password" class="form-control" placeholder="••••••••" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-dark w-100 fw-bold py-2">
+                                <i class="bi bi-unlock-fill me-1"></i> Iniciar Sesión
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- FORMULARIO REGISTRO -->
+                    <div class="tab-pane fade {% if active_tab == 'register' %}show active{% endif %}" id="pane-register" role="tabpanel">
+                        <form method="POST" action="{{ url_for('main.register_user') }}">
+                            <div class="mb-2">
+                                <label class="form-label fw-semibold" style="font-size: 0.85em;">Nombre de Usuario</label>
+                                <input type="text" name="username" class="form-control form-control-sm" placeholder="Mínimo 3 caracteres" minlength="3" required>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label fw-semibold" style="font-size: 0.85em;">Email (Opcional)</label>
+                                <input type="email" name="email" class="form-control form-control-sm" placeholder="usuario@correo.com">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label fw-semibold" style="font-size: 0.85em;">Contraseña</label>
+                                <input type="password" name="password" class="form-control form-control-sm" placeholder="Mínimo 6 caracteres" minlength="6" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold" style="font-size: 0.85em;">Repetir Contraseña</label>
+                                <input type="password" name="password2" class="form-control form-control-sm" placeholder="Confirmar contraseña" minlength="6" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 fw-bold py-2">
+                                <i class="bi bi-person-check-fill me-1"></i> Registrar y Configurar Mis Especies
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer bg-white text-center text-muted py-2" style="font-size: 0.8em;">
+                <i class="bi bi-shield-lock-fill text-success"></i> Sesiones aisladas en tiempo real por WebSocket
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+

@@ -1,4 +1,4 @@
 from flask_socketio import SocketIO
 
-# Creamos la instancia aquí para poder importarla desde cualquier lado
-socketio = SocketIO(cors_allowed_origins="*")
+# Usamos async_mode="threading" para compatibilidad total y sin bloqueos con ThreadPoolExecutor y requests
+socketio = SocketIO(cors_allowed_origins="*", async_mode="threading")
