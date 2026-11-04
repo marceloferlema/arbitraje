@@ -22,7 +22,8 @@ class Config:
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
     CHAT_ID = os.getenv("CHAT_ID")
     
-    # Configuración del Bot y Algoritmo de Precisión
+    # Cooldown para notificaciones de Telegram (en segundos por activo)
+    TELEGRAM_COOLDOWN_SEGUNDOS = 60
     UMBRAL_FUERTE = 1.5           # % mínimo para COMPRA_FUERTE y VENTA_FUERTE (ejecución directa punta vs punta)
     UMBRAL_VARIACION = 2.0        # % mínimo para COMPRA y VENTA normal (en caja)
     MONTO_MINIMO_OPERABLE = 0     # Poner ej. 25000 si querés ocultar puntas con menos de $25.000 ARS

@@ -33,6 +33,7 @@ class BotArbitraje:
         self.usuarios_config = {}               # {user_id: {id, username, umbral_fuerte, umbral_normal, monto_minimo, tickers, tickers_buy, ...}}
         self.alertas_por_usuario = {}           # {user_id: [alerta1, alerta2, ...]}
         self.ultimas_alertas_por_usuario = {}   # {user_id: {f"{simbolo}_{tipo}": clave}}
+        self.telegram_last_sent = {}            # {f"{user_id}_{simbolo}_{tipo}": timestamp}
 
         # Unión de todas las especies activas en el motor (para 1 única conexión PPI WS)
         self.active_tickers = []
@@ -758,24 +759,40 @@ class BotArbitraje:
                 "proveedor": "PPI"
             }
 
-            # Reemplazamos cualquier alerta previa del mismo símbolo y lado para no apilar duplicados
-            alertas_user[:] = [
-                a for a in alertas_user
-                if not (a.get("simbolo") == simbolo and a.get("tipo", "").startswith(lado_prefijo))
-            ]
-            alertas_user.insert(0, nueva)
+            # En lugar de insertar siempre en la posición 0 (lo que desordenaba la grilla),
+            # actualizamos el elemento existente en su lugar o agregamos uno nuevo y ordenamos por variacion (mayor % arriba)
+            idx_existente = -1
+            for i, a in enumerate(alertas_user):
+                if a.get("simbolo") == simbolo and a.get("tipo", "").startswith(lado_prefijo):
+                    idx_existente = i
+                    break
+
+            if idx_existente >= 0:
+                alertas_user[idx_existente] = nueva
+            else:
+                alertas_user.append(nueva)
+
+            # Orden estable: Mayor variación (%) arriba de todo
+            alertas_user.sort(key=lambda x: float(x.get("variacion", 0)), reverse=True)
             if len(alertas_user) > 100:
                 alertas_user.pop()
 
             if emitir_ws:
                 socketio.emit('actualizacion_alertas', alertas_user, to=f"user_{user_id}")
 
-            # Notificación Telegram (solo si cambió el precio o tipo de alerta, no por mero cambio marginal de volumen)
-            clave_precio = (tipo, p_in_r, p_out_r, var_r)
-            clave_precio_prev = ultimas_user.get(dict_key)[:4] if ultimas_user.get(dict_key) else None
+            # Notificación Telegram con Cooldown (evita saturar con alertas repetidas)
             tg_on = uconf.get("telegram_on") or Config.TELEGRAM_ON
             tg_chat = uconf.get("telegram_chat_id") or Config.CHAT_ID
-            if tg_on and tg_chat and Config.TELEGRAM_TOKEN and clave_precio != clave_precio_prev:
+            cooldown = getattr(Config, "TELEGRAM_COOLDOWN_SEGUNDOS", 60)
+            now_ts = time.time()
+            tg_key = f"{user_id}_{simbolo}_{lado_prefijo}"
+            last_sent_ts = self.telegram_last_sent.get(tg_key, 0)
+
+            clave_precio = (tipo, p_in_r, p_out_r, var_r)
+            clave_precio_prev = ultimas_user.get(dict_key)[:4] if ultimas_user.get(dict_key) else None
+
+            # Enviar si pasó el cooldown O si cambió el tipo/precio sustancialmente
+            if tg_on and tg_chat and Config.TELEGRAM_TOKEN and (now_ts - last_sent_ts >= cooldown or clave_precio != clave_precio_prev):
                 icono = "🟢" if "COMPRA" in tipo else "🔴"
                 if "FUERTE" in tipo:
                     icono = "🚀" if "COMPRA" in tipo else "🔥"
@@ -785,6 +802,7 @@ class BotArbitraje:
                     f"CI (In): ${p_in_r} | 24h (Out): ${p_out_r}"
                 )
                 self._enviar_telegram(msg, tg_chat)
+                self.telegram_last_sent[tg_key] = now_ts
 
             ultimas_user[dict_key] = clave_actual
 

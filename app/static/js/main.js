@@ -121,11 +121,24 @@ function aplicarFiltros() {
     document.getElementById('alert-count').innerText = visibles;
 }
 
-// === 4. LÓGICA DE RENDERIZADO (WEB SOCKETS) ===
+// === 4. LÓGICA DE RENDERIZADO (WEB SOCKETS Y GRILLA ESTABLE) ===
+let timeoutRender = null;
+let bufferAlertas = null;
 
-// Esta función PINTA la tabla con los datos que recibe (ya sea de la API o del Socket)
 function renderizarTabla(data) {
+    bufferAlertas = data;
+    // Si ya hay un render programado para este segundo, no volvemos a saturar el DOM
+    if (!timeoutRender) {
+        timeoutRender = setTimeout(() => {
+            ejecutarRenderTabla(bufferAlertas);
+            timeoutRender = null;
+        }, 300); // 300ms de amortiguación para lectura fluida
+    }
+}
+
+function ejecutarRenderTabla(data) {
     const tbody = document.getElementById('tabla-cuerpo');
+    if (!tbody) return;
     
     if (!data || data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Esperando oportunidades ejecutables...</td></tr>';
@@ -133,36 +146,33 @@ function renderizarTabla(data) {
         return;
     }
 
-    // Lógica de Sonido
+    // Lógica de Sonido solo cuando entra una oportunidad genuinamente nueva
     const alertaMasReciente = data[0];
-    const idActual = `${alertaMasReciente.hora}_${alertaMasReciente.simbolo}_${alertaMasReciente.tipo}`;
+    const idActual = `${alertaMasReciente.simbolo}_${alertaMasReciente.tipo}_${alertaMasReciente.t0}_${alertaMasReciente.t1}`;
 
     if (ultimaAlertaId !== null && ultimaAlertaId !== idActual) {
         if (sonidoHabilitado) sonidoNotificacion.play().catch(e => console.error("Error audio:", e));
     }
     ultimaAlertaId = idActual;
 
-    // Detectar hora del último scan para resaltar
-    const horaUltimoScan = data[0].hora;
     let htmlBuffer = '';
 
-    data.forEach((alerta, index) => {
-        const claseAnimacion = (index === 0 && ultimaAlertaId === idActual) ? 'nueva-fila' : ''; 
-        const claseReciente = (alerta.hora === horaUltimoScan) ? 'latest-scan' : '';
+    data.forEach((alerta) => {
         let textoTipo = alerta.tipo.replace('_', ' '); 
         const montoStr = alerta.monto ? '$' + Number(alerta.monto).toLocaleString('es-AR') : '-';
         const nomStr = alerta.nominales ? ` <small class="text-muted">(${alerta.nominales} nom.)</small>` : '';
+        const filaId = `row-alerta-${alerta.simbolo}-${alerta.tipo}`;
         
         htmlBuffer += `
-            <tr class="${claseAnimacion} ${claseReciente}">
+            <tr id="${filaId}">
                 <td>${alerta.hora}</td>
                 <td><strong>${alerta.simbolo}</strong></td>
                 <td class="text-center">
                     <span class="lbl-base ${alerta.tipo}">${textoTipo}</span>
                 </td>
-                <td class="text-end fw-bold">${alerta.variacion}%</td>
-                <td class="text-end">$${alerta.t0}</td>
-                <td class="text-end">$${alerta.t1}</td>
+                <td class="text-end fw-bold text-success">${alerta.variacion}%</td>
+                <td class="text-end fw-semibold">$${alerta.t0}</td>
+                <td class="text-end fw-semibold">$${alerta.t1}</td>
                 <td class="text-end fw-semibold">${montoStr}${nomStr}</td>
             </tr>
         `;
