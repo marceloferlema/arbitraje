@@ -236,6 +236,9 @@ function abrirModalConfigUsuario() {
                 document.getElementById('cfg-monto-minimo').value = c.monto_minimo ?? 0;
                 document.getElementById('cfg-telegram-chat').value = c.telegram_chat_id || '';
                 document.getElementById('cfg-telegram-on').checked = Boolean(c.telegram_on);
+                const darkCheck = document.getElementById('cfg-dark-mode');
+                if (darkCheck) darkCheck.checked = Boolean(c.dark_mode);
+                aplicarTemaVisual(Boolean(c.dark_mode));
                 document.getElementById('cfg-nueva-password').value = '';
             }
             modalConfigUsuarioObj.show();
@@ -244,6 +247,42 @@ function abrirModalConfigUsuario() {
             console.error('Error cargando configuración de usuario:', err);
             modalConfigUsuarioObj.show();
         });
+}
+
+// === GESTIÓN DE TEMA OSCURO / CLARO ===
+function toggleTheme() {
+    const htmlEl = document.documentElement;
+    const esOscuro = htmlEl.getAttribute('data-bs-theme') === 'dark';
+    const nuevoEstado = !esOscuro;
+    
+    aplicarTemaVisual(nuevoEstado);
+
+    // Persistimos en la base de datos para el usuario logueado
+    fetch('/api/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dark_mode: nuevoEstado })
+    }).catch(err => console.error('Error guardando preferencia de tema:', err));
+}
+
+function aplicarTemaVisual(esOscuro) {
+    const htmlEl = document.documentElement;
+    const icon = document.getElementById('icon-theme');
+    const chkConfig = document.getElementById('cfg-dark-mode');
+
+    if (esOscuro) {
+        htmlEl.setAttribute('data-bs-theme', 'dark');
+        if (icon) {
+            icon.className = 'bi bi-sun-fill text-warning';
+        }
+        if (chkConfig) chkConfig.checked = true;
+    } else {
+        htmlEl.setAttribute('data-bs-theme', 'light');
+        if (icon) {
+            icon.className = 'bi bi-moon-stars-fill text-dark';
+        }
+        if (chkConfig) chkConfig.checked = false;
+    }
 }
 
 function guardarConfigUsuario() {
@@ -258,6 +297,7 @@ function guardarConfigUsuario() {
         monto_minimo: parseFloat(document.getElementById('cfg-monto-minimo').value || 0),
         telegram_chat_id: document.getElementById('cfg-telegram-chat').value.trim(),
         telegram_on: document.getElementById('cfg-telegram-on').checked,
+        dark_mode: document.getElementById('cfg-dark-mode') ? document.getElementById('cfg-dark-mode').checked : false,
         nueva_password: document.getElementById('cfg-nueva-password').value
     };
 

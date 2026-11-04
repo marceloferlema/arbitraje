@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-bs-theme="{{ 'dark' if current_user and current_user.dark_mode else 'light' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -29,6 +29,11 @@
                 </div>
                 
                 <div class="d-flex flex-wrap align-items-center gap-2">
+                    <!-- Switch Modo Oscuro / Claro -->
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-theme-toggle" onclick="toggleTheme()" title="Cambiar a Modo Oscuro / Claro">
+                        <i class="bi {{ 'bi-sun-fill text-warning' if current_user and current_user.dark_mode else 'bi-moon-stars-fill text-dark' }}" id="icon-theme"></i>
+                    </button>
+
                     <!-- Botón Configurador de Especies del Usuario -->
                     <button type="button" class="btn btn-sm btn-primary" onclick="abrirModalEspecies()" title="Elegir qué especies querés monitorear en tu sesión">
                         <i class="bi bi-sliders"></i> Mis Especies (<span id="count-especies-activas">...</span>)
@@ -263,6 +268,13 @@
                             </div>
                         </div>
                         <div class="col-12"><hr class="my-1"></div>
+                        <div class="col-md-6 d-flex align-items-center">
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="cfg-dark-mode" {% if current_user and current_user.dark_mode %}checked{% endif %} onchange="aplicarTemaVisual(this.checked)">
+                                <label class="form-check-label fw-semibold" for="cfg-dark-mode" style="font-size: 0.85em;">🌙 Modo Oscuro (Dark Theme)</label>
+                            </div>
+                        </div>
+                        <div class="col-12"><hr class="my-1"></div>
                         <div class="col-12">
                             <label class="form-label fw-semibold" style="font-size: 0.85em;">🔒 Cambiar Contraseña (Opcional)</label>
                             <input type="password" class="form-control form-control-sm" id="cfg-nueva-password" placeholder="Dejar en blanco para mantener la actual (mín. 6 caracteres)">
@@ -281,6 +293,6 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}?v=2.1"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=2.2"></script>
 </body>
 </html>

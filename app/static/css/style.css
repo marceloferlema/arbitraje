@@ -1,4 +1,36 @@
-body { background-color: #f8f9fa; padding: 20px; }
+body { background-color: var(--bs-body-bg); padding: 20px; transition: background-color 0.3s ease, color 0.3s ease; }
+
+[data-bs-theme="dark"] body {
+    background-color: #121417;
+}
+
+[data-bs-theme="dark"] .card {
+    background-color: #1a1d21;
+    border-color: #2b3035;
+}
+
+[data-bs-theme="dark"] .modal-content {
+    background-color: #1a1d21;
+    border-color: #2b3035;
+}
+
+[data-bs-theme="dark"] .table-light {
+    background-color: #2b3035 !important;
+    color: #e9ecef !important;
+}
+
+[data-bs-theme="dark"] .table-hover>tbody>tr:hover>* {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+[data-bs-theme="dark"] #market-status-text.text-secondary {
+    color: #adb5bd !important;
+}
+
+[data-bs-theme="dark"] .dropdown-menu {
+    background-color: #1e2227;
+    border-color: #343a40;
+}
 
 /* === ETIQUETAS === */
 .lbl-base {

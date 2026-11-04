@@ -42,18 +42,21 @@ def init_db():
                     monto_minimo REAL DEFAULT 0.0,
                     telegram_chat_id TEXT,
                     telegram_on INTEGER DEFAULT 0,
+                    dark_mode INTEGER DEFAULT 0,
                     is_active INTEGER DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
 
-            # Migraciones seguras si la tabla ya existía sin is_admin o telegram_on
+            # Migraciones seguras si la tabla ya existía sin is_admin, telegram_on o dark_mode
             cur.execute("PRAGMA table_info(users);")
             columnas_users = {row["name"] for row in cur.fetchall()}
             if "is_admin" not in columnas_users:
                 cur.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0;")
             if "telegram_on" not in columnas_users:
                 cur.execute("ALTER TABLE users ADD COLUMN telegram_on INTEGER DEFAULT 0;")
+            if "dark_mode" not in columnas_users:
+                cur.execute("ALTER TABLE users ADD COLUMN dark_mode INTEGER DEFAULT 0;")
 
             # 2. Catálogo Maestro de Especies Disponibles en el Mercado (BYMA)
             cur.execute("""
@@ -150,7 +153,7 @@ def autenticar_usuario(username, password):
         cur.execute("""
             SELECT id, username, email, password_hash, is_admin,
                    umbral_fuerte, umbral_normal, monto_minimo,
-                   telegram_chat_id, telegram_on, is_active
+                   telegram_chat_id, telegram_on, dark_mode, is_active
             FROM users
             WHERE LOWER(username) = LOWER(?);
         """, (username_clean,))
@@ -174,7 +177,7 @@ def obtener_usuario_por_id(user_id):
         cur.execute("""
             SELECT id, username, email, is_admin,
                    umbral_fuerte, umbral_normal, monto_minimo,
-                   telegram_chat_id, telegram_on, is_active, created_at
+                   telegram_chat_id, telegram_on, dark_mode, is_active, created_at
             FROM users
             WHERE id = ? AND is_active = 1;
         """, (user_id,))
@@ -243,8 +246,8 @@ def crear_usuario(username, password, email=None, is_admin=0):
             conn.close()
 
 
-def actualizar_config_usuario(user_id, umbral_fuerte, umbral_normal, monto_minimo, telegram_chat_id=None, telegram_on=0, nueva_password=None):
-    """Actualiza los parámetros de umbral, volumen mínimo, Telegram y opcionalmente la contraseña del usuario."""
+def actualizar_config_usuario(user_id, umbral_fuerte, umbral_normal, monto_minimo, telegram_chat_id=None, telegram_on=0, dark_mode=None, nueva_password=None):
+    """Actualiza los parámetros de umbral, volumen mínimo, Telegram, modo oscuro y opcionalmente la contraseña del usuario."""
     with _db_lock:
         conn = get_db_connection()
         try:
@@ -266,10 +269,26 @@ def actualizar_config_usuario(user_id, umbral_fuerte, umbral_normal, monto_minim
                 int(user_id)
             ))
 
+            if dark_mode is not None:
+                cur.execute("UPDATE users SET dark_mode = ? WHERE id = ?;", (1 if dark_mode else 0, int(user_id)))
+
             if nueva_password and len(nueva_password.strip()) >= 6:
                 pwd_hash = generate_password_hash(nueva_password.strip())
                 cur.execute("UPDATE users SET password_hash = ? WHERE id = ?;", (pwd_hash, int(user_id)))
 
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+
+def set_dark_mode_usuario(user_id, dark_mode):
+    """Actualiza rápidamente la preferencia de modo oscuro del usuario."""
+    with _db_lock:
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE users SET dark_mode = ? WHERE id = ?;", (1 if dark_mode else 0, int(user_id)))
             conn.commit()
             return True
         finally:

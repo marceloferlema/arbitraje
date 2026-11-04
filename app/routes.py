@@ -9,6 +9,7 @@ from app.database import (
     obtener_usuario_por_id,
     crear_usuario,
     actualizar_config_usuario,
+    set_dark_mode_usuario,
     obtener_catalogo_usuario,
     guardar_seleccion_usuario,
     sincronizar_catalogo_byma_completo
@@ -247,6 +248,7 @@ def api_config_usuario():
 
     telegram_chat_id = (payload.get("telegram_chat_id") or "").strip()
     telegram_on = bool(payload.get("telegram_on", False))
+    dark_mode = payload.get("dark_mode")
     nueva_password = (payload.get("nueva_password") or "").strip()
 
     if nueva_password and len(nueva_password) < 6:
@@ -259,6 +261,7 @@ def api_config_usuario():
         monto_minimo=monto_minimo,
         telegram_chat_id=telegram_chat_id,
         telegram_on=telegram_on,
+        dark_mode=bool(dark_mode) if dark_mode is not None else None,
         nueva_password=nueva_password if nueva_password else None
     )
     bot_instance.recargar_especies_db(emitir_limpieza=True, user_id=user_id)
@@ -266,6 +269,16 @@ def api_config_usuario():
         "status": "ok",
         "message": "Parámetros actualizados y aplicados en tiempo real."
     })
+
+
+@main_bp.route("/api/theme", methods=["POST"])
+@login_required
+def toggle_theme():
+    user_id = session["user_id"]
+    payload = request.get_json(silent=True) or {}
+    dark_mode = bool(payload.get("dark_mode", False))
+    set_dark_mode_usuario(user_id, dark_mode)
+    return jsonify({"status": "ok", "dark_mode": dark_mode})
 
 
 @main_bp.route("/startbot")
