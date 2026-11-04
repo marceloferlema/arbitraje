@@ -3,12 +3,24 @@ import platform
 import sys
 import threading
 import time
+from datetime import datetime, timezone, timedelta
 import requests
 import simple_websocket
 from concurrent.futures import ThreadPoolExecutor
 from config import Config
 from app.extensions import socketio
 from app.database import init_db, obtener_perfiles_activos_motor
+
+# Offset oficial de Argentina: UTC-3 sin horario de verano
+TZ_ARGENTINA = timezone(timedelta(hours=-3), name="ART")
+
+def get_hora_argentina():
+    """Retorna datetime actual en huso horario de Argentina (UTC-3)."""
+    return datetime.now(timezone.utc).astimezone(TZ_ARGENTINA)
+
+def get_hora_argentina_str():
+    """Retorna la hora formateada HH:MM:SS en horario argentino."""
+    return get_hora_argentina().strftime('%H:%M:%S')
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -83,7 +95,7 @@ class BotArbitraje:
 
         if emitir_limpieza:
             usuarios_a_actualizar = [user_id] if (user_id and user_id in self.usuarios_config) else list(self.usuarios_config.keys())
-            hora_actual = time.strftime('%H:%M:%S')
+            hora_actual = get_hora_argentina_str()
 
             for uid in usuarios_a_actualizar:
                 uconf = self.usuarios_config.get(uid)
@@ -463,7 +475,7 @@ class BotArbitraje:
             if precio_op > 0:
                 slot["ultimo"] = precio_op
 
-        hora_actual = time.strftime('%H:%M:%S')
+        hora_actual = get_hora_argentina_str()
         self._evaluar_oportunidad(entry, hora_actual)
 
     # =========================================================================
@@ -471,11 +483,12 @@ class BotArbitraje:
     # =========================================================================
     def _verificar_ventana_operativa_ci(self):
         """
-        Verifica si estamos dentro del horario de negociación simultánea CI + 24hs (10:30 a 17:00 hs).
+        Verifica si estamos dentro del horario de negociación simultánea CI + 24hs (10:30 a 17:00 hs)
+        utilizando explícitamente el huso horario oficial de Argentina (America/Argentina/Buenos_Aires).
         Devuelve (habilitado: bool, estado_texto: str).
         """
-        ahora = time.localtime()
-        minutos_dia = ahora.tm_hour * 60 + ahora.tm_min
+        ahora = get_hora_argentina()
+        minutos_dia = ahora.hour * 60 + ahora.minute
 
         ap_h, ap_m = getattr(Config, "HORA_APERTURA_CI", (10, 30))
         ci_h, ci_m = getattr(Config, "HORA_CIERRE_CI", (17, 0))
@@ -485,16 +498,16 @@ class BotArbitraje:
         min_cierre_ci = ci_h * 60 + ci_m  # 17:00 -> 1020
         min_cierre_24 = t1_h * 60 + t1_m  # 18:00 -> 1080
 
-        if ahora.tm_wday >= 5:
+        if ahora.weekday() >= 5:
             return False, "Fin de semana (Mercado Cerrado)"
         if minutos_dia < min_apertura:
-            return False, f"Pre-apertura (CI y 24hs abren {ap_h:02d}:{ap_m:02d} hs)"
+            return False, f"Pre-apertura (CI y 24hs abren {ap_h:02d}:{ap_m:02d} hs ART)"
         if min_cierre_ci <= minutos_dia < min_cierre_24:
-            return False, f"CI Cerrado ({ci_h:02d}:{ci_m:02d} hs) | 24hs abierto hasta {t1_h:02d}:{t1_m:02d} hs"
+            return False, f"CI Cerrado ({ci_h:02d}:{ci_m:02d} hs ART) | 24hs abierto hasta {t1_h:02d}:{t1_m:02d} hs ART"
         if minutos_dia >= min_cierre_24:
-            return False, f"Mercado Cerrado (CI {ci_h:02d}:{ci_m:02d} / 24hs {t1_h:02d}:{t1_m:02d})"
+            return False, f"Mercado Cerrado (CI {ci_h:02d}:{ci_m:02d} / 24hs {t1_h:02d}:{t1_m:02d} ART)"
 
-        return True, f"Rueda Activa CI + 24hs ({ap_h:02d}:{ap_m:02d} a {ci_h:02d}:{ci_m:02d})"
+        return True, f"Rueda Activa CI + 24hs ({ap_h:02d}:{ap_m:02d} a {ci_h:02d}:{ci_m:02d} ART)"
 
     # =========================================================================
     # EVALUACIÓN DE OPORTUNIDADES POR USUARIO Y BUCLE PRINCIPAL
@@ -706,14 +719,14 @@ class BotArbitraje:
 
         try:
             self._cargar_foto_inicial_ppi(executor)
-            hora_inicial = time.strftime('%H:%M:%S')
+            hora_inicial = get_hora_argentina_str()
             for simbolo in list(self.active_tickers):
                 self._evaluar_oportunidad(self.ppi_live_cache.get(simbolo), hora_inicial)
 
             socketio.start_background_task(self._bucle_websocket_ppi)
 
             while self.is_running:
-                hora_actual = time.strftime('%H:%M:%S')
+                hora_actual = get_hora_argentina_str()
                 tickers_actuales = list(self.active_tickers)
 
                 estado_ws = "WS Conectado" if self.ppi_ws_connected else "WS Reconectando"
