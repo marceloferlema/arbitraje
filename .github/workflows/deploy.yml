@@ -26,9 +26,24 @@ jobs:
             # Actualizar dependencias si hubo cambios
             source venv/bin/activate
             pip install --no-cache-dir -r requirements.txt
+            pip install --no-cache-dir -r cripto/requirements.txt
             
-            # Reiniciar el daemon de systemd
+            # Reiniciar el daemon de arbitraje BYMA
             sudo systemctl restart arbitraje.service
+            
+            # Iniciar / actualizar el daemon de Alertas Cripto (systemd o background)
+            if sudo -n cp cripto/cripto-alertas.service /etc/systemd/system/cripto-alertas.service 2>/dev/null; then
+              sudo -n systemctl daemon-reload
+              sudo -n systemctl enable cripto-alertas.service
+              sudo -n systemctl restart cripto-alertas.service
+              sudo -n systemctl status cripto-alertas.service --no-pager
+            else
+              echo "ℹ️ Iniciando monitor cripto en background..."
+              pkill -f "cripto/run_live.py" || true
+              nohup /home/ubuntu/smartsoft/arbitraje/venv/bin/python /home/ubuntu/smartsoft/arbitraje/cripto/run_live.py --multi --mode confirmed --telegram > /home/ubuntu/smartsoft/arbitraje/cripto_live.log 2>&1 &
+              sleep 2
+              pgrep -af "cripto/run_live.py"
+            fi
             
             echo "✅ Despliegue completado con éxito."
             sudo systemctl status arbitraje.service --no-pager

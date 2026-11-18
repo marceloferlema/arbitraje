@@ -1,0 +1,103 @@
+"""
+Configuración de la estrategia de alertas cripto
+("Barrido de liquidez sobre zonas de Volume Profile").
+
+Todos los parámetros se pueden sobreescribir desde la CLI de run_live.py / run_backtest.py.
+"""
+from dataclasses import dataclass, field, asdict, replace
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+@dataclass
+class Settings:
+    # ---------------- Universo ----------------
+    symbol: str = "SOLUSDT"
+    btc_symbol: str = "BTCUSDT"
+    universe: tuple = ("SOLUSDT", "XRPUSDT", "BNBUSDT", "ETHUSDT", "DOGEUSDT", "BTCUSDT")
+
+    # ---------------- Volume Profile ----------------
+    profile_lookback_days: int = 540      # ~18 meses de velas 1H para construir el perfil
+    profile_min_days: int = 120           # mínimo de historia para considerar el perfil válido
+    profile_bin_pct: float = 0.004        # ancho de cada bin (0.4 % del precio, bins logarítmicos)
+    profile_smooth_bins: int = 5          # suavizado gaussiano del histograma
+    hvn_percentile: float = 70.0          # un pico es HVN si supera este percentil del histograma
+    zone_expand: float = 0.60             # la franja se extiende mientras el volumen >= 60 % del pico
+    zone_max_width_pct: float = 0.08      # ancho máximo de una franja (8 %)
+    zone_min_share: float = 0.01          # volumen mínimo de la franja (1 % del total)
+    value_area_pct: float = 0.70
+
+    # ---------------- Estructura diaria ----------------
+    pivot_len_1d: int = 3
+    range_lookback_days: int = 30
+    range_max_atr: float = 7.0            # si el box de 30 días mide <= 7 ATR diarios -> RANGO
+    accdist_threshold: float = 0.10
+
+    # ---------------- Estructura 1H / barrido ----------------
+    pivot_len_1h: int = 6                 # fractal de 6 velas a cada lado (captura swings intradía)
+    impulse_min_pct: float = 0.04         # el mínimo debe haber originado un impulso >= 4 %
+    pivot_search_days: int = 45           # antigüedad máxima del último mín/máx relevante
+    sweep_bars: int = 4                   # ventana (velas 1H) para barrido + reclaim
+    level_zone_tol_pct: float = 0.03      # el nivel barrido puede estar hasta 3 % fuera de la franja
+
+    # ---------------- Volumen 1H y momentum ----------------
+    vol_window_bars: int = 720            # 30 días de velas 1H para comparar volumen
+    vol_percentile_min: float = 0.85      # percentil mínimo del volumen en la vela de barrido
+    squeeze_confirm: bool = False         # exigir Squeeze Momentum girando desde extremo
+    wick_reject_min: float = 0.45         # cierre en el >=45% superior/inferior de la vela (o vela a favor)
+    delta_confirm: bool = True            # exigir absorción de taker_buy_base en la ventana de barrido
+    btc_filter: str = "strict"            # strict / soft / off
+    btc_recent_bars: int = 6
+    btc_ref_bars: int = 168
+    no_counter_bias: bool = True          # descartar señales EN CONTRA del sesgo 1D
+
+    # ---------------- Entradas / salidas ----------------
+    approach_pct: float = 0.03            # pre-alerta si el precio está a <= 3 % de la franja
+    entry_offset_pct: float = 0.0015      # limit apenas arriba del piso (long) / abajo del techo (short)
+    sl_buffer_atr_d: float = 0.35         # SL = borde de la franja/mecha -/+ 0.35 ATR diario
+    tp_buffer_pct: float = 0.003          # TP un poquito antes de la zona objetivo
+    min_tp_pct: float = 0.01
+    rr_min: float = 2.0
+    min_score: float = 65.0
+    breakeven_r: float = 1.5              # mover SL a breakeven al alcanzar +1.5R (0 = desactivado)
+    breakeven_offset_r: float = 0.15      # colchón sobre entrada al activar BE (+0.15R cubre comisiones)
+    partial_tp_r: float = 2.0             # cerrar fracción parcial al alcanzar +2.0R (0 = desactivado)
+    partial_tp_frac: float = 0.35         # fracción a cerrar en TP1 (35 %, deja 65 % para el tramo largo)
+    trail_start_r: float = 0.0            # activar trailing stop en R (0 = desactivado; deja correr al TP/time-stop)
+    trail_distance_r: float = 1.50        # distancia del trailing stop en unidades R si se activa
+    pre_valid_hours: int = 72             # validez de la orden limit de una pre-alerta
+    max_hold_days: int = 7                # time-stop
+    zone_cooldown_hours: int = 24
+
+    # ---------------- Riesgo / sizing ----------------
+    capital_usd: float = 1000.0
+    margin_pct_min: float = 0.02
+    margin_pct_max: float = 0.05
+    leverage_max: int = 3
+    max_risk_pct: float = 0.01            # pérdida máxima por trade (1 % del capital)
+    sl_tight_pct: float = 0.02            # SL <= 2 % -> margen máximo
+    sl_wide_pct: float = 0.08             # SL >= 8 % -> margen mínimo
+
+    # ---------------- Backtest ----------------
+    fee_maker: float = 0.0002
+    fee_taker: float = 0.0005
+    slippage_pct: float = 0.0005          # en stops y entradas a mercado
+    compound: bool = True
+    max_open_positions: int = 1
+    intrabar_resolution: bool = True      # resolver ambigüedades con velas 1m (on-demand)
+
+    # ---------------- Rutas ----------------
+    data_dir: str = os.path.join(BASE_DIR, "data")
+    reports_dir: str = os.path.join(BASE_DIR, "reports")
+    alerts_dir: str = os.path.join(BASE_DIR, "alerts_log")
+
+    def to_dict(self):
+        return asdict(self)
+
+    def override(self, **kwargs):
+        clean = {k: v for k, v in kwargs.items() if v is not None and hasattr(self, k)}
+        return replace(self, **clean)
+
+
+DEFAULT = Settings()

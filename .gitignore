@@ -210,3 +210,11 @@ __marimo__/
 *.db
 *.db-shm
 *.db-wal
+
+# Cripto cache, reportes y logs locales
+cripto/data/
+cripto/reports/
+cripto/alerts_log/
+cripto/golden_poc/data/
+cripto/golden_poc/output/
+cripto/golden_poc/sent_alerts.json
