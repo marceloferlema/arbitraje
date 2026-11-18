@@ -82,28 +82,46 @@ def run_bingx_test(cfg, symbols, dry_run=False):
         ex.dry_run = True
 
     now = pd.Timestamp.now(tz="UTC")
+    entry_px = 1.0000
+    if not ex.dry_run and isinstance(ex, BinanceExecutor):
+        try:
+            tk = ex._request("GET", "/fapi/v1/ticker/price", {"symbol": "XRPUSDT"}, signed=False)
+            entry_px = float(tk.get("price", 1.0))
+            print(f"[binance] Precio actual XRPUSDT en Testnet: {entry_px:.4f}")
+        except Exception:
+            pass
+
+    sl_px = round(entry_px * 0.95, 4)
+    tp1_px = round(entry_px * 1.05, 4)
+    tp_px = round(entry_px * 1.10, 4)
+    qty_est = round(100.0 / max(entry_px, 0.01), 1)
+
     dummy_sig = Signal(
         id="XRPUSDT-CON-L-TEST", kind="CONFIRMADA", direction="LONG", symbol="XRPUSDT",
-        time=now, bar_idx=0, entry=1.1240, sl=1.0890, tp=1.2480, rr=3.54, score=78.0,
-        entry_type="MERCADO", zone={"key": 1, "low": 1.095, "high": 1.115, "wall_score": 0.75},
-        target_zone={"low": 1.2518, "high": 1.289}, level=1.1180, level_time=now.isoformat(),
-        tp1_price=1.1940,
-        sizing={"equity": 1000.0, "margin_usd": 43.8, "margin_pct": 0.0438, "leverage": 3,
-                "notional_usd": 131.4, "qty": 116.9039, "risk_usd": 4.09, "risk_pct": 0.0041,
-                "reward_usd": 14.49, "sl_pct": 0.0311, "tp_pct": 0.1103},
+        time=now, bar_idx=0, entry=entry_px, sl=sl_px, tp=tp_px, rr=2.0, score=78.0,
+        entry_type="MERCADO", zone={"key": 1, "low": sl_px, "high": entry_px, "wall_score": 0.75},
+        target_zone={"low": tp_px, "high": tp_px * 1.02}, level=entry_px, level_time=now.isoformat(),
+        tp1_price=tp1_px,
+        sizing={"equity": 1000.0, "margin_usd": 33.3, "margin_pct": 0.0333, "leverage": 3,
+                "notional_usd": 100.0, "qty": qty_est, "risk_usd": 5.0, "risk_pct": 0.005,
+                "reward_usd": 10.0, "sl_pct": 0.05, "tp_pct": 0.10},
     )
     tr = trade_from_signal(dummy_sig, cfg)
     print("\n1️⃣ Al dispararse la señal CONFIRMADA:")
     ex.on_signal(dummy_sig, tr, cfg)
 
-    print("\n2️⃣ Cuando el precio alcanza +1.5R (evento BE -> mueve SL a Breakeven +0.15R):")
-    tr.sl = 1.1292
+    print("\n2️⃣ Cuando el precio alcanza +1.5R (evento BE -> mueve SL):")
+    tr.sl = round(entry_px * 0.985, 4)
     tr.be_moved = True
     ex.on_event(tr, ("BE", now, tr.sl), cfg)
 
     print("\n3️⃣ Cuando el precio alcanza +2.0R (evento TP1 -> cierra 35% y ajusta SL al 65% restante):")
     tr.partial_done = True
-    ex.on_event(tr, ("TP1", now, 1.1940), cfg)
+    ex.on_event(tr, ("TP1", now, tp1_px), cfg)
+
+    if not ex.dry_run:
+        print("\n4️⃣ Limpiando órdenes y cerrando posición de prueba en Testnet:")
+        ex.on_event(tr, ("TIEMPO", now, entry_px), cfg)
     print("=" * 85)
 
 
@@ -196,28 +214,46 @@ def run_binance_test(cfg, symbols, dry_run=False):
         ex.dry_run = True
 
     now = pd.Timestamp.now(tz="UTC")
+    entry_px = 1.0000
+    if not ex.dry_run and isinstance(ex, BinanceExecutor):
+        try:
+            tk = ex._request("GET", "/fapi/v1/ticker/price", {"symbol": "XRPUSDT"}, signed=False)
+            entry_px = float(tk.get("price", 1.0))
+            print(f"[binance] Precio actual XRPUSDT en Testnet: {entry_px:.4f}")
+        except Exception:
+            pass
+
+    sl_px = round(entry_px * 0.95, 4)
+    tp1_px = round(entry_px * 1.05, 4)
+    tp_px = round(entry_px * 1.10, 4)
+    qty_est = round(100.0 / max(entry_px, 0.01), 1)
+
     dummy_sig = Signal(
         id="XRPUSDT-CON-L-TEST", kind="CONFIRMADA", direction="LONG", symbol="XRPUSDT",
-        time=now, bar_idx=0, entry=1.1240, sl=1.0890, tp=1.2480, rr=3.54, score=78.0,
-        entry_type="MERCADO", zone={"key": 1, "low": 1.095, "high": 1.115, "wall_score": 0.75},
-        target_zone={"low": 1.2518, "high": 1.289}, level=1.1180, level_time=now.isoformat(),
-        tp1_price=1.1940,
-        sizing={"equity": 1000.0, "margin_usd": 43.8, "margin_pct": 0.0438, "leverage": 3,
-                "notional_usd": 131.4, "qty": 116.9039, "risk_usd": 4.09, "risk_pct": 0.0041,
-                "reward_usd": 14.49, "sl_pct": 0.0311, "tp_pct": 0.1103},
+        time=now, bar_idx=0, entry=entry_px, sl=sl_px, tp=tp_px, rr=2.0, score=78.0,
+        entry_type="MERCADO", zone={"key": 1, "low": sl_px, "high": entry_px, "wall_score": 0.75},
+        target_zone={"low": tp_px, "high": tp_px * 1.02}, level=entry_px, level_time=now.isoformat(),
+        tp1_price=tp1_px,
+        sizing={"equity": 1000.0, "margin_usd": 33.3, "margin_pct": 0.0333, "leverage": 3,
+                "notional_usd": 100.0, "qty": qty_est, "risk_usd": 5.0, "risk_pct": 0.005,
+                "reward_usd": 10.0, "sl_pct": 0.05, "tp_pct": 0.10},
     )
     tr = trade_from_signal(dummy_sig, cfg)
     print("\n1️⃣ Al dispararse la señal CONFIRMADA:")
     ex.on_signal(dummy_sig, tr, cfg)
 
-    print("\n2️⃣ Cuando el precio alcanza +1.5R (evento BE -> mueve SL a Breakeven +0.15R):")
-    tr.sl = 1.1292
+    print("\n2️⃣ Cuando el precio alcanza +1.5R (evento BE -> mueve SL):")
+    tr.sl = round(entry_px * 0.985, 4)
     tr.be_moved = True
     ex.on_event(tr, ("BE", now, tr.sl), cfg)
 
     print("\n3️⃣ Cuando el precio alcanza +2.0R (evento TP1 -> cierra 35% y ajusta SL al 65% restante):")
     tr.partial_done = True
-    ex.on_event(tr, ("TP1", now, 1.1940), cfg)
+    ex.on_event(tr, ("TP1", now, tp1_px), cfg)
+
+    if not ex.dry_run:
+        print("\n4️⃣ Limpiando órdenes y cerrando posición de prueba en Testnet:")
+        ex.on_event(tr, ("TIEMPO", now, entry_px), cfg)
     print("=" * 85)
 
 

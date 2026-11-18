@@ -94,7 +94,7 @@ class BinanceExecutor:
         except Exception:
             r.raise_for_status()
             raise
-        if r.status_code >= 400 or (isinstance(data, dict) and "code" in data and data["code"] < 0):
+        if r.status_code >= 400 or (isinstance(data, dict) and "code" in data and int(data["code"]) < 0):
             code = data.get("code", r.status_code) if isinstance(data, dict) else r.status_code
             msg = data.get("msg", r.text) if isinstance(data, dict) else r.text
             raise RuntimeError(f"Binance API error {code}: {msg}")
@@ -210,6 +210,14 @@ class BinanceExecutor:
         res = self._request("POST", "/fapi/v1/order", params)
         return str(res.get("orderId", ""))
 
+    def _place_algo_order(self, params: dict) -> str:
+        if self.dry_run:
+            return f"SIM-ALG-{int(time.time() * 1000) % 1000000}"
+        p = dict(params)
+        p["algoType"] = "CONDITIONAL"
+        res = self._request("POST", "/fapi/v1/algoOrder", p)
+        return str(res.get("algoId", ""))
+
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         if not order_id or self.dry_run:
             return True
@@ -219,6 +227,16 @@ class BinanceExecutor:
             return True
         except Exception as e:
             print(f"[binance] Aviso cancelando orden {order_id} en {sym}: {e}")
+            return False
+
+    def cancel_algo_order(self, symbol: str, algo_id: str) -> bool:
+        if not algo_id or self.dry_run:
+            return True
+        try:
+            self._request("DELETE", "/fapi/v1/algoOrder", {"algoId": algo_id})
+            return True
+        except Exception as e:
+            print(f"[binance] Aviso cancelando algo orden {algo_id} en {symbol}: {e}")
             return False
 
     def on_signal(self, s, tr, cfg) -> dict:
@@ -278,48 +296,48 @@ class BinanceExecutor:
                 entry_params["timeInForce"] = "GTC"
             orders["entry_order_id"] = self._place_order(entry_params)
 
-            # 2. Stop Loss (100% de la posición)
+            # 2. Stop Loss (100% de la posición) -> Algo Order API
             sl_params = {
                 "symbol": sym,
                 "side": close_side,
                 "positionSide": pos_side,
                 "type": "STOP_MARKET",
-                "stopPrice": sl_px,
+                "triggerPrice": sl_px,
                 "quantity": total_qty,
                 "workingType": "MARK_PRICE",
             }
             if not self._dual_side:
                 sl_params["reduceOnly"] = "true"
-            orders["sl_order_id"] = self._place_order(sl_params)
+            orders["sl_order_id"] = self._place_algo_order(sl_params)
 
-            # 3. TP1 parcial (35%)
+            # 3. TP1 parcial (35%) -> Algo Order API
             if tp1_qty > 0 and tp1_px:
                 tp1_params = {
                     "symbol": sym,
                     "side": close_side,
                     "positionSide": pos_side,
                     "type": "TAKE_PROFIT_MARKET",
-                    "stopPrice": tp1_px,
+                    "triggerPrice": tp1_px,
                     "quantity": tp1_qty,
                     "workingType": "MARK_PRICE",
                 }
                 if not self._dual_side:
                     tp1_params["reduceOnly"] = "true"
-                orders["tp1_order_id"] = self._place_order(tp1_params)
+                orders["tp1_order_id"] = self._place_algo_order(tp1_params)
 
-            # 4. TP2 final (65%)
+            # 4. TP2 final (65%) -> Algo Order API
             tp2_params = {
                 "symbol": sym,
                 "side": close_side,
                 "positionSide": pos_side,
                 "type": "TAKE_PROFIT_MARKET",
-                "stopPrice": tp_px,
+                "triggerPrice": tp_px,
                 "quantity": tp2_qty,
                 "workingType": "MARK_PRICE",
             }
             if not self._dual_side:
                 tp2_params["reduceOnly"] = "true"
-            orders["tp2_order_id"] = self._place_order(tp2_params)
+            orders["tp2_order_id"] = self._place_algo_order(tp2_params)
 
             tr.exchange_orders = orders
             tag = f"BINANCE {'TESTNET-SIM' if self.dry_run else ('TESTNET' if self.testnet else 'LIVE')}"
@@ -356,7 +374,7 @@ class BinanceExecutor:
             if name in ("BE", "TP1"):
                 old_sl_id = orders.get("sl_order_id")
                 if old_sl_id:
-                    self.cancel_order(sym, old_sl_id)
+                    self.cancel_algo_order(sym, old_sl_id)
                 rem_qty = orders.get("tp2_qty", orders.get("total_qty", tr.qty)) if tr.partial_done else orders.get("total_qty", tr.qty)
                 rem_qty = self.round_qty(sym, rem_qty)
                 new_sl_px = self.round_price(sym, tr.sl)
@@ -365,13 +383,13 @@ class BinanceExecutor:
                     "side": close_side,
                     "positionSide": pos_side,
                     "type": "STOP_MARKET",
-                    "stopPrice": new_sl_px,
+                    "triggerPrice": new_sl_px,
                     "quantity": rem_qty,
                     "workingType": "MARK_PRICE",
                 }
                 if not self._dual_side:
                     sl_params["reduceOnly"] = "true"
-                new_id = self._place_order(sl_params)
+                new_id = self._place_algo_order(sl_params)
                 orders["sl_order_id"] = new_id
                 tr.exchange_orders = orders
                 self._notify(f"🤖 [{tag}] SL actualizado en {sym} ({name}) -> {new_sl_px} por qty {rem_qty} (ID: {new_id})")
@@ -379,7 +397,7 @@ class BinanceExecutor:
             elif name == "TIEMPO":
                 for k in ("sl_order_id", "tp1_order_id", "tp2_order_id"):
                     if orders.get(k):
-                        self.cancel_order(sym, orders[k])
+                        self.cancel_algo_order(sym, orders[k])
                 rem_qty = orders.get("tp2_qty", orders.get("total_qty", tr.qty)) if tr.partial_done else orders.get("total_qty", tr.qty)
                 rem_qty = self.round_qty(sym, rem_qty)
                 close_params = {
@@ -395,8 +413,10 @@ class BinanceExecutor:
                 self._notify(f"🤖 [{tag}] Time-stop ejecutado a mercado en {sym} por qty {rem_qty} (ID: {cid})")
 
             elif name in ("TP", "SL", "CANCELADA", "EXPIRADA"):
-                for k in ("entry_order_id", "sl_order_id", "tp1_order_id", "tp2_order_id"):
+                if orders.get("entry_order_id"):
+                    self.cancel_order(sym, orders["entry_order_id"])
+                for k in ("sl_order_id", "tp1_order_id", "tp2_order_id"):
                     if orders.get(k):
-                        self.cancel_order(sym, orders[k])
+                        self.cancel_algo_order(sym, orders[k])
         except Exception as e:
             self._notify(f"⚠️ [Binance] Error procesando evento {name} en {sym}: {e}")
