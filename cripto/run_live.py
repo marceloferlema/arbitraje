@@ -20,6 +20,7 @@ import pandas as pd
 
 from config_cripto import DEFAULT
 from cripto_alertas.backtest import trade_from_signal
+from cripto_alertas.binance_exec import BinanceExecutor
 from cripto_alertas.bingx import BingXExecutor
 from cripto_alertas.live import LiveRunner
 from cripto_alertas.radar import format_radar_report
@@ -40,6 +41,9 @@ def parse():
     ap.add_argument("--bingx-live", action="store_true", help="Ejecutar órdenes automáticamente en BingX Modo Real (USDT)")
     ap.add_argument("--bingx-dry-run", action="store_true", help="Simular llamadas a BingX sin enviar órdenes reales/VST")
     ap.add_argument("--test-bingx", action="store_true", help="Probar conexión a BingX Demo (VST), contratos y flujo de órdenes")
+    ap.add_argument("--binance-testnet", action="store_true", help="Ejecutar órdenes automáticamente en Binance Futures Testnet")
+    ap.add_argument("--binance-live", action="store_true", help="Ejecutar órdenes automáticamente en Binance Futures Real (USDT)")
+    ap.add_argument("--test-binance", action="store_true", help="Probar conexión a Binance Futures Testnet y contratos")
     ap.add_argument("--radar-hours", type=float, default=4.0, help="Intervalo en horas para el reporte Radar de zonas a Telegram (default: 4.0, 0 para desactivar)")
     ap.add_argument("--min-score", type=float, dest="min_score")
     ap.add_argument("--btc-filter", choices=["strict", "soft", "off"], dest="btc_filter")
@@ -162,6 +166,61 @@ def start_radar_scheduler(runners, interval_hours, stop_event=None):
     return th
 
 
+def run_binance_test(cfg, symbols, dry_run=False):
+    print("=" * 85)
+    print("🧪 PRUEBA DE INTEGRACIÓN BINANCE USD-M FUTURES — MODO TESTNET (DEMO)")
+    print("=" * 85)
+    ex = BinanceExecutor(testnet=True, dry_run=dry_run)
+    contracts = ex.load_contracts()
+    print(f"[binance] Contratos cargados desde {ex.base_url}: {len(contracts)} pares disponibles.\n")
+
+    print("Especificaciones de los pares de la cartera en Binance Futures:")
+    for sym in symbols:
+        info = ex.contract_info(sym)
+        print(f"  · {sym:8s} -> Binance: {info['symbol']:10s} | minQty: {info['min_qty']:<8} | "
+              f"qtyPrec: {info['qty_prec']} | pricePrec: {info['price_prec']} | minUSDT: {info['min_usdt']}")
+
+    if ex.api_key and ex.api_secret and not dry_run:
+        try:
+            bal = ex.get_balance()
+            print(f"\n💰 Balance Cuenta Testnet Binance ({bal['asset']}): "
+                  f"Total={bal['balance']:,.2f} {bal['asset']} | Disponible={bal['availableMargin']:,.2f} {bal['asset']}")
+        except Exception as e:
+            print(f"\n⚠️ No se pudo consultar el balance Testnet ({e}). Pasando a simulación de flujo de órdenes.")
+            ex.dry_run = True
+    else:
+        print("\nℹ️ Para que el bot opere contra tu cuenta Testnet o Real de Binance, agregá en tu `.env`:")
+        print("   BINANCE_API_KEY=tu_api_key_de_binance")
+        print("   BINANCE_API_SECRET=tu_secret_key_de_binance")
+        print("\nSimulando ciclo completo de una señal CONFIRMADA (Entrada + SL + TP1 35% + TP2 65% + Breakeven):")
+        ex.dry_run = True
+
+    now = pd.Timestamp.now(tz="UTC")
+    dummy_sig = Signal(
+        id="XRPUSDT-CON-L-TEST", kind="CONFIRMADA", direction="LONG", symbol="XRPUSDT",
+        time=now, bar_idx=0, entry=1.1240, sl=1.0890, tp=1.2480, rr=3.54, score=78.0,
+        entry_type="MERCADO", zone={"key": 1, "low": 1.095, "high": 1.115, "wall_score": 0.75},
+        target_zone={"low": 1.2518, "high": 1.289}, level=1.1180, level_time=now.isoformat(),
+        tp1_price=1.1940,
+        sizing={"equity": 1000.0, "margin_usd": 43.8, "margin_pct": 0.0438, "leverage": 3,
+                "notional_usd": 131.4, "qty": 116.9039, "risk_usd": 4.09, "risk_pct": 0.0041,
+                "reward_usd": 14.49, "sl_pct": 0.0311, "tp_pct": 0.1103},
+    )
+    tr = trade_from_signal(dummy_sig, cfg)
+    print("\n1️⃣ Al dispararse la señal CONFIRMADA:")
+    ex.on_signal(dummy_sig, tr, cfg)
+
+    print("\n2️⃣ Cuando el precio alcanza +1.5R (evento BE -> mueve SL a Breakeven +0.15R):")
+    tr.sl = 1.1292
+    tr.be_moved = True
+    ex.on_event(tr, ("BE", now, tr.sl), cfg)
+
+    print("\n3️⃣ Cuando el precio alcanza +2.0R (evento TP1 -> cierra 35% y ajusta SL al 65% restante):")
+    tr.partial_done = True
+    ex.on_event(tr, ("TP1", now, 1.1940), cfg)
+    print("=" * 85)
+
+
 def main():
     a = parse()
     if a.find_chats:
@@ -180,7 +239,7 @@ def main():
 
     if a.symbols:
         symbols = [s.strip().upper() for s in a.symbols.split(",") if s.strip()]
-    elif a.multi or a.test_bingx:
+    elif a.multi or a.test_bingx or a.test_binance:
         symbols = list(cfg.universe)
     else:
         symbols = [a.symbol.upper()]
@@ -188,9 +247,14 @@ def main():
     if a.test_bingx:
         run_bingx_test(cfg, symbols, dry_run=a.bingx_dry_run)
         return
+    if a.test_binance:
+        run_binance_test(cfg, symbols)
+        return
 
     executor = None
-    if a.bingx_demo or a.bingx_live or a.bingx_dry_run:
+    if a.binance_testnet or a.binance_live:
+        executor = BinanceExecutor(testnet=not a.binance_live)
+    elif a.bingx_demo or a.bingx_live or a.bingx_dry_run:
         executor = BingXExecutor(demo=not a.bingx_live, dry_run=a.bingx_dry_run)
 
     if len(symbols) == 1:

@@ -117,7 +117,8 @@ def load_env():
                         k, v = line.strip().split("=", 1)
                         env[k.strip()] = v.strip().strip('"').strip("'")
     for k in ("TELEGRAM_TOKEN", "CHAT_ID", "CRIPTO_TELEGRAM_TOKEN", "CRIPTO_CHAT_ID",
-              "BINGX_API_KEY", "BINGX_SECRET", "BINGX_SECRET_KEY"):
+              "BINGX_API_KEY", "BINGX_SECRET", "BINGX_SECRET_KEY",
+              "BINANCE_API_KEY", "BINANCE_API_SECRET", "BINANCE_SECRET"):
         if os.getenv(k):
             env[k] = os.getenv(k)
     return env
