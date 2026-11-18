@@ -22,6 +22,7 @@ from config_cripto import DEFAULT
 from cripto_alertas.backtest import trade_from_signal
 from cripto_alertas.bingx import BingXExecutor
 from cripto_alertas.live import LiveRunner
+from cripto_alertas.radar import format_radar_report
 from cripto_alertas.strategy import Signal
 
 
@@ -39,6 +40,7 @@ def parse():
     ap.add_argument("--bingx-live", action="store_true", help="Ejecutar órdenes automáticamente en BingX Modo Real (USDT)")
     ap.add_argument("--bingx-dry-run", action="store_true", help="Simular llamadas a BingX sin enviar órdenes reales/VST")
     ap.add_argument("--test-bingx", action="store_true", help="Probar conexión a BingX Demo (VST), contratos y flujo de órdenes")
+    ap.add_argument("--radar-hours", type=float, default=4.0, help="Intervalo en horas para el reporte Radar de zonas a Telegram (default: 4.0, 0 para desactivar)")
     ap.add_argument("--min-score", type=float, dest="min_score")
     ap.add_argument("--btc-filter", choices=["strict", "soft", "off"], dest="btc_filter")
     ap.add_argument("--be-r", type=float, dest="breakeven_r")
@@ -128,6 +130,38 @@ def find_telegram_chats():
             print(f"  · chat_id: {cid:<16s} | tipo: {ctype:<10s} | nombre: {title}")
 
 
+def start_radar_scheduler(runners, interval_hours, stop_event=None):
+    if interval_hours <= 0 or not runners:
+        return
+
+    def _loop():
+        # Espera inicial para estabilizar websockets y contextos
+        time.sleep(8)
+        n = runners[0].notifier
+        try:
+            rep = format_radar_report(runners)
+            if rep:
+                n.send(rep)
+        except Exception as e:
+            print(f"[radar] error en reporte inicial: {e}")
+
+        last_sent = time.time()
+        while stop_event is None or not stop_event.is_set():
+            time.sleep(30)
+            if time.time() - last_sent >= interval_hours * 3600:
+                try:
+                    rep = format_radar_report(runners)
+                    if rep:
+                        n.send(rep)
+                    last_sent = time.time()
+                except Exception as e:
+                    print(f"[radar] error en ciclo periódico: {e}")
+
+    th = threading.Thread(target=_loop, daemon=True)
+    th.start()
+    return th
+
+
 def main():
     a = parse()
     if a.find_chats:
@@ -164,6 +198,7 @@ def main():
                             kinds=kinds, intrabar_pre=not a.no_intrabar_pre, executor=executor, chat_id=a.chat_id)
         if a.telegram:
             runner.notifier.send(f"🚀 Monitor Cripto iniciado en vivo ({symbols[0]} · modo {'+'.join(kinds)})")
+        start_radar_scheduler([runner], a.radar_hours, runner.stop)
         runner.run()
         return
 
@@ -183,12 +218,16 @@ def main():
             resumen.append(f"  · {r.cfg.symbol}: {px:,.4f} USDT | 1D: {r.ctx.structure.summary()}")
         runners[0].notifier.send("\n".join(resumen))
 
+    stop_event = threading.Event()
+    start_radar_scheduler(runners, a.radar_hours, stop_event)
+
     print(f"[live] Monitoreando {len(runners)} pares en paralelo ({', '.join(symbols)}). Ctrl+C para salir.")
     try:
         while True:
             time.sleep(30)
     except KeyboardInterrupt:
         print("\n[live] deteniendo todos los monitores...")
+        stop_event.set()
         for r in runners:
             r.stop.set()
             r.save_state()
