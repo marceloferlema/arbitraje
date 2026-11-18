@@ -162,6 +162,8 @@ def main():
     if len(symbols) == 1:
         runner = LiveRunner(cfg.override(symbol=symbols[0]), telegram=a.telegram,
                             kinds=kinds, intrabar_pre=not a.no_intrabar_pre, executor=executor, chat_id=a.chat_id)
+        if a.telegram:
+            runner.notifier.send(f"🚀 Monitor Cripto iniciado en vivo ({symbols[0]} · modo {'+'.join(kinds)})")
         runner.run()
         return
 
@@ -173,6 +175,13 @@ def main():
         threading.Thread(target=r._worker, daemon=True).start()
         threading.Thread(target=r._ws_loop, daemon=True).start()
         runners.append(r)
+
+    if a.telegram and runners:
+        resumen = [f"🚀 Monitor de Alertas Cripto ACTIVO ({len(runners)} pares · modo {'+'.join(kinds)})"]
+        for r in runners:
+            px = float(r.h1["close"].iloc[-1]) if len(r.h1) else 0.0
+            resumen.append(f"  · {r.cfg.symbol}: {px:,.4f} USDT | 1D: {r.ctx.structure.summary()}")
+        runners[0].notifier.send("\n".join(resumen))
 
     print(f"[live] Monitoreando {len(runners)} pares en paralelo ({', '.join(symbols)}). Ctrl+C para salir.")
     try:
