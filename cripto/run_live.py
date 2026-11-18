@@ -257,6 +257,22 @@ def run_binance_test(cfg, symbols, dry_run=False):
     print("=" * 85)
 
 
+def executor_status_line(executor) -> str:
+    if executor is None:
+        return "📢 Modo ejecución: Solo alertas (sin envío automático de órdenes)"
+    if isinstance(executor, BinanceExecutor):
+        modo = "SIMULACIÓN" if executor.dry_run else ("TESTNET (DEMO)" if executor.testnet else "REAL (LIVE)")
+        ex_name = f"Binance Futures {modo}"
+    else:
+        modo = "SIMULACIÓN" if executor.dry_run else ("DEMO (VST)" if executor.demo else "REAL (LIVE)")
+        ex_name = f"BingX Futures {modo}"
+    try:
+        bal = executor.get_balance()
+        return f"🤖 Ejecución automática: {ex_name} · Saldo disponible: {bal['availableMargin']:,.2f} {bal['asset']}"
+    except Exception as e:
+        return f"🤖 Ejecución automática: {ex_name} (aviso balance: {e})"
+
+
 def main():
     a = parse()
     if a.find_chats:
@@ -297,7 +313,10 @@ def main():
         runner = LiveRunner(cfg.override(symbol=symbols[0]), telegram=a.telegram,
                             kinds=kinds, intrabar_pre=not a.no_intrabar_pre, executor=executor, chat_id=a.chat_id)
         if a.telegram:
-            runner.notifier.send(f"🚀 Monitor Cripto iniciado en vivo ({symbols[0]} · modo {'+'.join(kinds)})")
+            runner.notifier.send(
+                f"🚀 Monitor Cripto iniciado en vivo ({symbols[0]} · modo {'+'.join(kinds)})\n"
+                f"{executor_status_line(executor)}"
+            )
         start_radar_scheduler([runner], a.radar_hours, runner.stop)
         runner.run()
         return
@@ -312,7 +331,10 @@ def main():
         runners.append(r)
 
     if a.telegram and runners:
-        resumen = [f"🚀 Monitor de Alertas Cripto ACTIVO ({len(runners)} pares · modo {'+'.join(kinds)})"]
+        resumen = [
+            f"🚀 Monitor de Alertas Cripto ACTIVO ({len(runners)} pares · modo {'+'.join(kinds)})",
+            executor_status_line(executor),
+        ]
         for r in runners:
             px = float(r.h1["close"].iloc[-1]) if len(r.h1) else 0.0
             resumen.append(f"  · {r.cfg.symbol}: {px:,.4f} USDT | 1D: {r.ctx.structure.summary()}")
