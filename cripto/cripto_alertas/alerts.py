@@ -28,7 +28,9 @@ def tv_link(symbol):
 
 def format_signal(s, funding=None):
     emoji = "🟢" if s.direction == "LONG" else "🔴"
-    if s.kind == "PRE":
+    if "-CAP-" in str(s.id):
+        head = f"🔥 CAPITULACIÓN EXTREMA {emoji} {s.direction} {s.symbol} (Perp) – SNIPER REBOTE"
+    elif s.kind == "PRE":
         head = f"🟡 PRE-ALERTA {emoji} {s.direction} {s.symbol} (Perp) – dejar orden LIMIT"
     else:
         head = f"{emoji} {s.direction} {s.symbol} (Perp) – SEÑAL CONFIRMADA"

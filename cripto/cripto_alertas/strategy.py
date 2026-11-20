@@ -127,6 +127,11 @@ class Engine:
             self.tb_ratio = (h1["taker_buy_base"] / vol_nz).to_numpy()
         else:
             self.tb_ratio = np.full(len(h1), 0.5)
+        self.ema200 = h1["close"].ewm(span=200, adjust=False).mean().to_numpy()
+        _delta = h1["close"].diff()
+        _gain = _delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False).mean()
+        _loss = (-_delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False).mean()
+        self.rsi14 = (100 - (100 / (1 + _gain / _loss.replace(0, np.nan)))).to_numpy()
         ph, pl = pivots(h1, cfg.pivot_len_1h, cfg.pivot_len_1h)
         self.piv_hi = ph.to_numpy()
         self.piv_lo = pl.to_numpy()
@@ -238,7 +243,86 @@ class Engine:
                 s = self._pre(t, ctx, state, direction, equity, now, partial)
                 if s:
                     out.append(s)
+        if ("CONFIRMADA" in kinds and not partial
+                and getattr(self.cfg, "capitulation_enabled", False)
+                and not any(s.direction == "LONG" for s in out)):
+            s_cap = self._capitulation_long(t, ctx, state, equity, now)
+            if s_cap:
+                out.append(s_cap)
         return out
+
+    def _capitulation_long(self, t, ctx, state, equity, now):
+        """
+        Sniper de Capitulación Extrema (LONG táctico 2:1 en pisos de pánico real):
+        Detecta velas de clímax de volumen + absorción agresiva cuando el precio está
+        fuertemente sobreextendido debajo de la EMA200 y en sobreventa extrema (RSI <= 25).
+        """
+        cfg = self.cfg
+        if t < 200:
+            return None
+        cap_key = -999
+        if state.zone_in_cooldown("LONG", cap_key, now):
+            return None
+        o, h, l, c = float(self.o[t]), float(self.h[t]), float(self.l[t]), float(self.c[t])
+        rng = h - l
+        if rng <= 0 or c <= o:
+            return None
+        ema = float(self.ema200[t])
+        if np.isnan(ema) or ema <= 0 or (c / ema - 1.0) > cfg.capitulation_ema_dist_pct:
+            return None
+        rsi_win = self.rsi14[max(0, t - 3):t + 1]
+        if len(rsi_win) == 0 or np.all(np.isnan(rsi_win)) or float(np.nanmin(rsi_win)) > cfg.capitulation_rsi_max:
+            return None
+        vp = float(self.vol_pct[t])
+        if np.isnan(vp) or vp < cfg.capitulation_vol_pct:
+            return None
+        wick_bull = (c - l) / rng
+        if wick_bull < cfg.capitulation_wick_min:
+            return None
+        tb = float(self.tb_ratio[t])
+        if np.isnan(tb) or tb < cfg.capitulation_tb_min:
+            return None
+
+        atr_h = float(self.atr_h[t])
+        if np.isnan(atr_h) or atr_h <= 0:
+            return None
+        low3 = float(np.min(self.l[max(0, t - 2):t + 1]))
+        entry = c
+        sl = low3 - 0.5 * atr_h
+        risk = entry - sl
+        if risk <= 0 or (risk / entry) > 0.12:
+            return None
+        rr = float(getattr(cfg, "capitulation_rr", 2.0))
+        tp = entry + rr * risk
+
+        state.zone_cooldown[f"LONG|{cap_key}"] = (pd.Timestamp(now) + pd.Timedelta(hours=cfg.capitulation_cooldown_hours)).isoformat()
+        sid = f"{cfg.symbol}-CAP-L-{pd.Timestamp(now):%Y%m%d%H%M}"
+        md = self.mom_direction(t)
+        btc_ok, btc_note = self.btc_check(t, "LONG")
+        zone_dict = {
+            "key": cap_key, "low": sl, "high": entry, "peak": low3, "share": 0.0, "prominence": 0.0,
+            "support_rejections": 0, "resistance_rejections": 0, "crosses": 0, "is_poc": False,
+            "mid": (sl + entry) / 2, "width_pct": (entry / sl - 1) if sl > 0 else 0.0, "wall_score": 1.0,
+        }
+        tz_dict = {
+            "key": -998, "low": tp, "high": tp * 1.01, "peak": tp, "share": 0.0, "prominence": 0.0,
+            "support_rejections": 0, "resistance_rejections": 0, "crosses": 0, "is_poc": False,
+            "mid": tp * 1.005, "width_pct": 0.01, "wall_score": 0.5,
+        }
+        return Signal(
+            id=sid, kind="CONFIRMADA", direction="LONG", symbol=cfg.symbol, time=pd.Timestamp(now), bar_idx=t,
+            entry=float(entry), sl=float(sl), tp=float(tp), rr=round(rr, 2), score=88.0,
+            entry_type="MERCADO", zone=zone_dict, target_zone=tz_dict, level=float(low3),
+            level_time=self.times[t].isoformat(), sweep_extreme=float(low3),
+            price_now=float(c), vol_pct=vp,
+            vol_ratio=None if np.isnan(self.vol_ratio[t]) else float(self.vol_ratio[t]),
+            mom_dir=md, sqz_on=bool(self.sqz[t]), btc_ok=btc_ok, btc_note=btc_note,
+            structure=ctx.structure.summary(),
+            bias_alignment=f"CAPITULACION EXTREMA (EMA200 {(c/ema-1)*100:.1f}%, RSI {float(np.nanmin(rsi_win)):.1f})",
+            valid_until=None, max_hold_until_days=min(3, cfg.max_hold_days),
+            retest_entry=None, retest_rr=None, tp1_price=None, delta_1h=round(tb, 3),
+            sizing=position_size(entry, sl, tp, equity, cfg),
+        )
 
     def delta_check(self, t, direction):
         """Absorción agresiva (taker_buy_base / volume) en la ventana de barrido."""

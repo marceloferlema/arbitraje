@@ -70,6 +70,16 @@ class Settings:
     max_hold_days: int = 7                # time-stop
     zone_cooldown_hours: int = 24
 
+    # ---------------- Capitulación Extrema (Sniper Contra-Tendencia) ----------------
+    capitulation_enabled: bool = True         # detectar pisos de pánico extremo (LONG táctico 2:1)
+    capitulation_ema_dist_pct: float = -0.10  # precio <= -10 % por debajo de EMA 200 (1H)
+    capitulation_rsi_max: float = 25.0        # RSI 1H <= 25 en las últimas 4 velas
+    capitulation_vol_pct: float = 0.95        # volumen en percentil >= 95 %
+    capitulation_wick_min: float = 0.75       # cierre en el >= 75 % superior de la vela
+    capitulation_tb_min: float = 0.53         # compras agresivas (taker_buy_base) >= 53 %
+    capitulation_rr: float = 2.0              # objetivo táctico de rebote (R:R 2:1)
+    capitulation_cooldown_hours: int = 48     # enfriamiento entre señales de capitulación
+
     # ---------------- Riesgo / sizing ----------------
     capital_usd: float = 1000.0
     margin_pct_min: float = 0.02
