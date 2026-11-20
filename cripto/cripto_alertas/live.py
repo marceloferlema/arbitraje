@@ -204,20 +204,27 @@ class LiveRunner:
 
     def _ws_loop(self):
         sym = self.cfg.symbol.lower()
-        url = BinanceFutures.ws_url([f"{sym}@kline_1m", f"{sym}@kline_1h"])
+        streams = [f"{sym}@kline_1m", f"{sym}@kline_1h"]
+        urls = [BinanceFutures.ws_url(streams), BinanceFutures.ws_fallback_url(streams)]
+        url_idx = 0
         backoff = 2
         while not self.stop.is_set():
+            url = urls[url_idx % len(urls)]
             ws = websocket.WebSocketApp(
                 url, on_message=self._on_message,
-                on_open=lambda w: print(f"[ws] conectado {url}"),
+                on_open=lambda w, u=url: print(f"[ws] conectado {u}"),
                 on_error=lambda w, e: print(f"[ws] error: {e}"),
                 on_close=lambda w, c, m: print(f"[ws] desconectado ({c})"))
             t0 = time.time()
             ws.run_forever(ping_interval=30, ping_timeout=10)
             if self.stop.is_set():
                 break
-            if time.time() - t0 > 60:
+            elapsed = time.time() - t0
+            if elapsed > 60:
                 backoff = 2
+            else:
+                # Si falló rápido (ej. bloqueo 451 en fstream), alternar al endpoint fallback (data-stream.binance.vision)
+                url_idx += 1
             print(f"[ws] reconectando en {backoff}s...")
             time.sleep(backoff)
             backoff = min(backoff * 2, 60)
@@ -225,6 +232,19 @@ class LiveRunner:
                 self.q.put(("1h", None))
             except Exception:
                 pass
+
+    def check_hourly_failsafe(self):
+        """Failsafe por REST: si cambió la hora UTC y el WS no disparó cierre 1H, lo fuerza."""
+        if self.h1 is None or len(self.h1) == 0:
+            return
+        now = pd.Timestamp.now(tz="UTC")
+        expected_last_closed = now.floor("1h") - H1
+        last_bar = self.h1.index.max()
+        if last_bar < expected_last_closed and now >= now.floor("1h") + pd.Timedelta(seconds=20):
+            if getattr(self, "_last_failsafe_hour", None) != expected_last_closed:
+                self._last_failsafe_hour = expected_last_closed
+                print(f"[live] ⏱️ Failsafe REST disparado para {self.cfg.symbol} (cierre {expected_last_closed:%H:%M} UTC)")
+                self.q.put(("1h", None))
 
     def bootstrap(self):
         print(f"[live] cargando historia {self.cfg.symbol} / {self.cfg.btc_symbol}...")
@@ -243,6 +263,7 @@ class LiveRunner:
         try:
             while True:
                 time.sleep(30)
+                self.check_hourly_failsafe()
                 if time.time() - self.last_msg > 180:
                     print("[live] ⚠️ sin mensajes del WebSocket hace más de 3 minutos")
         except KeyboardInterrupt:

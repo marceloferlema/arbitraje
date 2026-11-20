@@ -23,6 +23,13 @@ def format_radar_report(runners):
             t = len(eng.times) - 1
             d = eng.describe(t, r.ctx)
             px = d["price"]
+            if r.partial_1h is not None and len(r.partial_1h) > 0:
+                px = float(r.partial_1h["close"].iloc[-1])
+            else:
+                try:
+                    px = float(r.ds.ticker_price(r.cfg.symbol))
+                except Exception:
+                    pass
             sym = r.cfg.symbol
             bias = r.ctx.structure.bias
             trend = r.ctx.structure.trend

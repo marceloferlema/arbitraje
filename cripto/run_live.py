@@ -347,6 +347,8 @@ def main():
     try:
         while True:
             time.sleep(30)
+            for r in runners:
+                r.check_hourly_failsafe()
     except KeyboardInterrupt:
         print("\n[live] deteniendo todos los monitores...")
         stop_event.set()

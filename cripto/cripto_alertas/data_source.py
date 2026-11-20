@@ -15,6 +15,7 @@ import requests
 
 BASE_URL = "https://fapi.binance.com"
 WS_URL = "wss://fstream.binance.com/stream"
+WS_FALLBACK_URL = "wss://data-stream.binance.vision/stream"
 
 INTERVAL_MS = {
     "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000, "30m": 1_800_000,
@@ -237,6 +238,10 @@ class BinanceFutures:
     @staticmethod
     def ws_url(streams):
         return f"{WS_URL}?streams={'/'.join(streams)}"
+
+    @staticmethod
+    def ws_fallback_url(streams):
+        return f"{WS_FALLBACK_URL}?streams={'/'.join(streams)}"
 
 
 def utc_now():
