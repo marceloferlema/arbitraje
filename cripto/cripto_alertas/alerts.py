@@ -139,8 +139,11 @@ class Notifier:
         if telegram and not (self.token and self.chat_id):
             print("⚠️ TELEGRAM_TOKEN / CHAT_ID no configurados en .env: Telegram desactivado.")
             self.telegram = False
+        self.storage = None
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
+            from .storage import BotStorage
+            self.storage = BotStorage(log_dir)
 
     def send(self, text):
         if self.console:
@@ -158,6 +161,11 @@ class Notifier:
     def log_signal(self, s):
         if not self.log_dir:
             return
+        if self.storage is not None:
+            try:
+                self.storage.log_signal(s)
+            except Exception as e:
+                print(f"⚠️ Error guardando señal en SQLite: {e}")
         path = os.path.join(self.log_dir, "alertas.csv")
         d = s.to_dict()
         row = {k: d[k] for k in ("id", "kind", "direction", "symbol", "time", "entry_type", "entry", "sl", "tp",
@@ -176,6 +184,11 @@ class Notifier:
     def log_event(self, tr, event):
         if not self.log_dir:
             return
+        if self.storage is not None:
+            try:
+                self.storage.log_event(tr, event)
+            except Exception as e:
+                print(f"⚠️ Error guardando evento en SQLite: {e}")
         path = os.path.join(self.log_dir, "eventos.csv")
         name, ts, price = event
         new = not os.path.exists(path)

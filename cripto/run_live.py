@@ -47,6 +47,8 @@ def parse():
     ap.add_argument("--test-binance", action="store_true", help="Probar conexión a Binance Futures Testnet y contratos")
     ap.add_argument("--test-gemini", action="store_true", help="Probar análisis cuantitativo en vivo con Gemini")
     ap.add_argument("--weekly-audit", action="store_true", help="Ejecutar auditoría semanal de resultados con Gemini")
+    ap.add_argument("--export-audit", action="store_true", help="Exportar paquete Markdown desde SQLite para auditoría profunda (costo $0)")
+    ap.add_argument("--audit-days", type=int, default=30, help="Ventana de días para --export-audit (default: 30)")
     ap.add_argument("--radar-hours", type=float, default=4.0, help="Intervalo en horas para el reporte Radar de zonas a Telegram (default: 4.0, 0 para desactivar)")
     ap.add_argument("--min-score", type=float, dest="min_score")
     ap.add_argument("--btc-filter", choices=["strict", "soft", "off"], dest="btc_filter")
@@ -169,6 +171,11 @@ def start_radar_scheduler(runners, interval_hours, stop_event=None):
             ai_txt = analyst.analyze_radar_snapshot(runners)
             if ai_txt:
                 n.send(ai_txt)
+                if getattr(n, "storage", None) is not None:
+                    try:
+                        n.storage.log_ai_report("4H", analyst.model, ai_txt)
+                    except Exception:
+                        pass
 
     def _loop():
         # Espera inicial para estabilizar websockets y contextos
@@ -310,6 +317,13 @@ def main():
         n.send("🟢 Prueba de conexión exitosa — Bot de Alertas Cripto (Barrido de Liquidez + Volume Profile) activo en su propio chat.")
         return
     cfg = DEFAULT.override(min_score=a.min_score, btc_filter=a.btc_filter, breakeven_r=a.breakeven_r)
+    if a.export_audit:
+        from cripto_alertas.storage import BotStorage
+        st = BotStorage(cfg.alerts_dir)
+        md = st.export_audit_markdown(days=a.audit_days, cfg=cfg)
+        print(md)
+        print(f"\n✅ Guardado también en: {os.path.join(cfg.alerts_dir, 'audit_bundle.md')}")
+        return
     kinds = {"pre": ("PRE",), "confirmed": ("CONFIRMADA",), "both": ("PRE", "CONFIRMADA")}[a.mode]
 
     if a.symbols:

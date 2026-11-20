@@ -178,6 +178,13 @@ class LiveRunner:
         sigs = eng.evaluate(t, self.ctx, self.state, self.kinds, equity=equity)
         self.handle_signals(sigs)
         self.save_state()
+        if self.notifier.storage is not None:
+            try:
+                self.notifier.storage.backfill_near_miss_outcomes(self.cfg.symbol, self.h1)
+                if not sigs:
+                    self.notifier.storage.log_near_miss(last_bar_ts + H1, self.cfg.symbol, self.ctx, eng.describe(t, self.ctx))
+            except Exception as e:
+                print(f"[storage] aviso registrando telemetría {self.cfg.symbol}: {e}")
         print(status_text(eng, t, self.ctx, self.trades, self.cfg, fired=bool(sigs)), flush=True)
 
     def on_minute_close(self, k):
