@@ -166,6 +166,12 @@ class LiveRunner:
         time.sleep(3)
         self.refresh_data()
         self.refresh_context()
+        if self.h1 is None or len(self.h1) == 0:
+            return
+        last_bar_ts = self.h1.index[-1]
+        if getattr(self, "_last_eval_bar", None) == last_bar_ts:
+            return
+        self._last_eval_bar = last_bar_ts
         eng = self.engine()
         t = len(eng.times) - 1
         equity = self._current_equity()

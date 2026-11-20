@@ -7,8 +7,11 @@ Capa de datos: Binance USDⓈ-M Futures (API pública, sin API key).
 """
 import json
 import os
+import threading
 import time
 from datetime import datetime, timezone
+
+_CSV_LOCK = threading.Lock()
 
 import pandas as pd
 import requests
@@ -125,11 +128,18 @@ class BinanceFutures:
 
     def _read_cache(self, symbol, interval):
         path = self._cache_file(symbol, interval)
-        if not os.path.exists(path):
-            return None
-        df = pd.read_csv(path, index_col="time")
-        df.index = pd.to_datetime(df.index, format="ISO8601", utc=True)
-        return df.astype(float).sort_index()
+        with _CSV_LOCK:
+            if not os.path.exists(path) or os.path.getsize(path) == 0:
+                return None
+            try:
+                df = pd.read_csv(path, index_col="time")
+                if df.empty:
+                    return None
+                df.index = pd.to_datetime(df.index, format="ISO8601", utc=True)
+                return df.astype(float).sort_index()
+            except Exception as e:
+                print(f"[datos] aviso leyendo caché {symbol} {interval} ({e}); recargando desde API.")
+                return None
 
     def load_klines(self, symbol, interval, start=None, end=None, use_cache=True, verbose=True):
         """Devuelve velas CERRADAS en [start, end). Usa caché y descarga sólo lo faltante."""
@@ -158,7 +168,11 @@ class BinanceFutures:
         cutoff = pd.Timestamp(now_ms() - step, unit="ms", tz="UTC")
         df = df[df.index <= cutoff]
         if use_cache and not df.empty:
-            df.to_csv(self._cache_file(symbol, interval), index_label="time")
+            path = self._cache_file(symbol, interval)
+            tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+            with _CSV_LOCK:
+                df.to_csv(tmp, index_label="time")
+                os.replace(tmp, path)
         s = pd.Timestamp(start_ms, unit="ms", tz="UTC")
         e = pd.Timestamp(end_ms, unit="ms", tz="UTC")
         return df[(df.index >= s) & (df.index < e)].copy()
