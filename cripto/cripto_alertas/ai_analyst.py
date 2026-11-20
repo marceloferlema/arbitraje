@@ -96,16 +96,18 @@ class GeminiAnalyst:
         self._client = genai.Client(api_key=self.api_key)
         return self._client
 
-    def _ask(self, system_instruction: str, prompt: str, max_tokens: int = 650) -> str:
+    def _ask(self, system_instruction: str, prompt: str, max_tokens: int = 650, thinking: str = "low") -> str:
         if not self.enabled:
             return ""
+        print(f"[gemini] Consultando {self.model} (thinking={thinking})...", flush=True)
         client = self._get_client()
         interaction = client.interactions.create(
             model=self.model,
             system_instruction=system_instruction,
             input=prompt,
-            generation_config={"temperature": 0.2, "max_output_tokens": max_tokens},
+            generation_config={"thinking_level": thinking, "max_output_tokens": max_tokens},
             store=False,
+            timeout=45.0,
         )
         return (interaction.output_text or "").strip()
 
