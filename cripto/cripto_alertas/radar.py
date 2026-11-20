@@ -54,7 +54,7 @@ def format_radar_report(runners):
                 poc_tag = " · POC" if z.is_poc else ""
                 wall_pct = int(round(z.wall_score * 100))
                 techo = f"{_p(z.low)} – {_p(z.high)} (+{dist:.1f}% | muralla {wall_pct}%{poc_tag})"
-            elif d.get("last_high"):
+            elif d.get("last_high") and d["last_high"][1] > px:
                 lh = d["last_high"][1]
                 dist = (lh / px - 1) * 100
                 techo = f"{_p(lh)} (+{dist:.1f}% | Swing High liquidez)"
@@ -67,7 +67,7 @@ def format_radar_report(runners):
                 poc_tag = " · POC" if z.is_poc else ""
                 wall_pct = int(round(z.wall_score * 100))
                 piso = f"{_p(z.low)} – {_p(z.high)} (-{dist:.1f}% | muralla {wall_pct}%{poc_tag})"
-            elif d.get("last_low"):
+            elif d.get("last_low") and d["last_low"][1] < px:
                 ll = d["last_low"][1]
                 dist = (1 - ll / px) * 100
                 piso = f"{_p(ll)} (-{dist:.1f}% | Swing Low liquidez)"

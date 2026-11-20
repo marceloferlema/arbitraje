@@ -19,6 +19,7 @@ if hasattr(sys.stdout, "reconfigure"):
 import pandas as pd
 
 from config_cripto import DEFAULT
+from cripto_alertas.ai_analyst import GeminiAnalyst
 from cripto_alertas.backtest import trade_from_signal
 from cripto_alertas.binance_exec import BinanceExecutor
 from cripto_alertas.bingx import BingXExecutor
@@ -44,6 +45,8 @@ def parse():
     ap.add_argument("--binance-testnet", action="store_true", help="Ejecutar órdenes automáticamente en Binance Futures Testnet")
     ap.add_argument("--binance-live", action="store_true", help="Ejecutar órdenes automáticamente en Binance Futures Real (USDT)")
     ap.add_argument("--test-binance", action="store_true", help="Probar conexión a Binance Futures Testnet y contratos")
+    ap.add_argument("--test-gemini", action="store_true", help="Probar análisis cuantitativo en vivo con Gemini")
+    ap.add_argument("--weekly-audit", action="store_true", help="Ejecutar auditoría semanal de resultados con Gemini")
     ap.add_argument("--radar-hours", type=float, default=4.0, help="Intervalo en horas para el reporte Radar de zonas a Telegram (default: 4.0, 0 para desactivar)")
     ap.add_argument("--min-score", type=float, dest="min_score")
     ap.add_argument("--btc-filter", choices=["strict", "soft", "off"], dest="btc_filter")
@@ -156,28 +159,48 @@ def start_radar_scheduler(runners, interval_hours, stop_event=None):
     if interval_hours <= 0 or not runners:
         return
 
+    analyst = GeminiAnalyst()
+
+    def _emit_radar_and_ai(n):
+        rep = format_radar_report(runners)
+        if rep:
+            n.send(rep)
+        if analyst.enabled:
+            ai_txt = analyst.analyze_radar_snapshot(runners)
+            if ai_txt:
+                n.send(ai_txt)
+
     def _loop():
         # Espera inicial para estabilizar websockets y contextos
         time.sleep(8)
         n = runners[0].notifier
         try:
-            rep = format_radar_report(runners)
-            if rep:
-                n.send(rep)
+            _emit_radar_and_ai(n)
         except Exception as e:
             print(f"[radar] error en reporte inicial: {e}")
 
         last_sent = time.time()
+        last_audit_week = None
         while stop_event is None or not stop_event.is_set():
             time.sleep(30)
             if time.time() - last_sent >= interval_hours * 3600:
                 try:
-                    rep = format_radar_report(runners)
-                    if rep:
-                        n.send(rep)
+                    _emit_radar_and_ai(n)
                     last_sent = time.time()
                 except Exception as e:
                     print(f"[radar] error en ciclo periódico: {e}")
+            # Auditoría semanal automática los domingos 21:00 ART (= lunes 00:00 UTC)
+            if analyst.enabled:
+                now_utc = pd.Timestamp.now(tz="UTC")
+                iso_week = f"{now_utc.isocalendar().year}-W{now_utc.isocalendar().week}"
+                if now_utc.weekday() == 0 and now_utc.hour == 0 and last_audit_week != iso_week:
+                    try:
+                        audit = analyst.run_weekly_audit(runners[0].cfg.alerts_dir, runners[0].cfg)
+                        if audit:
+                            n.send(audit)
+                        last_audit_week = iso_week
+                    except Exception as e:
+                        print(f"[gemini] error en auditoría semanal: {e}")
 
     th = threading.Thread(target=_loop, daemon=True)
     th.start()
@@ -291,7 +314,7 @@ def main():
 
     if a.symbols:
         symbols = [s.strip().upper() for s in a.symbols.split(",") if s.strip()]
-    elif a.multi or a.test_bingx or a.test_binance:
+    elif a.multi or a.test_bingx or a.test_binance or a.test_gemini:
         symbols = list(cfg.universe)
     else:
         symbols = [a.symbol.upper()]
@@ -301,6 +324,27 @@ def main():
         return
     if a.test_binance:
         run_binance_test(cfg, symbols)
+        return
+    if a.test_gemini or a.weekly_audit:
+        from cripto_alertas.alerts import Notifier
+        analyst = GeminiAnalyst()
+        if not analyst.enabled:
+            print("⚠️ GEMINI_API_KEY no encontrada en .env. Agregá GEMINI_API_KEY=tu_clave en .env")
+            return
+        n = Notifier(telegram=a.telegram, console=True, chat_id=a.chat_id)
+        if a.weekly_audit:
+            txt = analyst.run_weekly_audit(cfg.alerts_dir, cfg)
+            if txt:
+                n.send(txt)
+            return
+        runners = []
+        for sym in symbols:
+            r = LiveRunner(cfg.override(symbol=sym), telegram=False)
+            r.bootstrap()
+            runners.append(r)
+        txt = analyst.analyze_radar_snapshot(runners)
+        if txt:
+            n.send(txt)
         return
 
     executor = None
