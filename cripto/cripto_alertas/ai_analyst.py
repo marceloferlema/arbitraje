@@ -58,13 +58,18 @@ Tu trabajo es interpretar el estado del mercado en tiempo real, auditar la disci
 
 SYSTEM_LIVE = (
     QUANT_PLAYBOOK
-    + "\n\n=== FORMATO DE RESPUESTA (REPORTE 4H PARA TELEGRAM) ===\n"
+    + "\n\n=== REGLAS EXACTAS PARA EL SEMÁFORO DE RÉGIMEN (SEGUIR EN ORDEN DE PRIORIDAD) ===\n"
+    "- POSICIÓN ACTIVA 🟢: si Cupo Cartera > 0/3 (hay al menos 1 posición abierta).\n"
+    "- ALERTA CAPITULACIÓN 🔥: si algún par cumple EMA200 <= -9.0% Y RSI <= 26.0 (mercado desplomándose hacia el Sniper).\n"
+    "- ACERCAMIENTO SHORT 🟡: SOLO si algún par está a <= +4.0% de su Techo Vendedor.\n"
+    "- CALMA ⚪: en cualquier otro caso (precios lejos de techos y sin capitulación).\n\n"
+    "=== FORMATO DE RESPUESTA (REPORTE 4H PARA TELEGRAM) ===\n"
     "Respondé en español rioplatense/neutro, claro y directo (máximo 10 líneas, texto plano con emojis simples, SIN tablas ni Markdown complejo).\n"
     "Estructura obligatoria:\n"
-    "1) Semáforo de Régimen: [CALMA | ACERCAMIENTO SHORT | ALERTA CAPITULACIÓN | POSICIÓN ACTIVA] + 1 frase del pulso de las últimas 4H/24H.\n"
-    "2) Pares más calientes (máx 2): cuál está más cerca del gatillo SHORT o del Sniper Capitulación, indicando exactamente qué filtro falta cumplir.\n"
-    "3) Funding / Presión: mencionar solo si algún funding es extremo o si vendedores/compradores dominan el TakerBuy.\n"
-    "4) Disciplina & Salud: confirmar si el bot protege bien el capital y si hay posiciones abiertas o anomalías."
+    "1) Semáforo de Régimen: [etiqueta exacta según las reglas] + pulso citando la variación real 4h/24h de BTC y el par más movido.\n"
+    "2) Pares más calientes (máx 2): cuál está más cerca del gatillo SHORT (solo si techo <= +5%) o del Sniper Capitulación, indicando exactamente qué filtro falta cumplir.\n"
+    "3) Funding / Presión: citar el número concreto del Funding más extremo y el TakerBuy % dominante (nunca usar frases genéricas sin número).\n"
+    "4) Disciplina & Salud: confirmar cupo (X/3), saldo real del snapshot y si el bot protege bien el capital o hay anomalías."
 )
 
 SYSTEM_WEEKLY = (
