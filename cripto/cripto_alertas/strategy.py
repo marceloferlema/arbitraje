@@ -514,18 +514,72 @@ class Engine:
 
     # ------------------------------------------------------------ diagnóstico
     def describe(self, t, ctx):
-        c = self.c[t]
+        cfg = self.cfg
+        o, h, l, c = float(self.o[t]), float(self.h[t]), float(self.l[t]), float(self.c[t])
+        rng = h - l
         lo = self.last_level(t, "LONG")
         hi = self.last_level(t, "SHORT")
         below = zones_below(ctx.zones, c)[:3]
         above = zones_above(ctx.zones, c)[:3]
+        ema = float(self.ema200[t]) if not np.isnan(self.ema200[t]) else np.nan
+        ema_dist = ((c / ema - 1.0) * 100.0) if (not np.isnan(ema) and ema > 0) else None
+        rsi_win = self.rsi14[max(0, t - 3):t + 1]
+        rsi_min4 = float(np.nanmin(rsi_win)) if len(rsi_win) and not np.all(np.isnan(rsi_win)) else None
+        tb = None if np.isnan(self.tb_ratio[t]) else float(self.tb_ratio[t])
+        wick_bull = ((c - l) / rng) if rng > 0 else 0.0
+        wick_bear = ((h - c) / rng) if rng > 0 else 0.0
+        vp = None if np.isnan(self.vol_pct[t]) else float(self.vol_pct[t])
+
+        # Diagnóstico conciso si hubo volumen alto (Vol >= percentil requerido)
+        skip_reason = None
+        if vp is not None and vp >= cfg.vol_percentile_min:
+            pref = ctx.structure.preferred_direction()
+            reasons = []
+            if pref == "SHORT":
+                if hi is None or self.h[max(0, t - cfg.sweep_bars + 1):t + 1].max() < hi[1]:
+                    reasons.append("sin barrido de techo 1H")
+                elif wick_bear < cfg.wick_reject_min and c >= o:
+                    reasons.append(f"mecha bajista {wick_bear*100:.0f}% < {cfg.wick_reject_min*100:.0f}%")
+                else:
+                    reasons.append("sin reclaim/zona/R:R>=2")
+            elif pref == "LONG":
+                if lo is None or self.l[max(0, t - cfg.sweep_bars + 1):t + 1].min() > lo[1]:
+                    reasons.append("sin barrido de piso 1H")
+                elif wick_bull < cfg.wick_reject_min and c <= o:
+                    reasons.append(f"mecha alcista {wick_bull*100:.0f}% < {cfg.wick_reject_min*100:.0f}%")
+                else:
+                    reasons.append("sin reclaim/zona/R:R>=2")
+            if getattr(cfg, "capitulation_enabled", False):
+                cap_miss = []
+                if c <= o:
+                    cap_miss.append("vela roja")
+                if ema_dist is None or ema_dist > cfg.capitulation_ema_dist_pct * 100:
+                    cap_miss.append(f"EMA200 {ema_dist:+.1f}%" if ema_dist is not None else "sin EMA200")
+                if rsi_min4 is None or rsi_min4 > cfg.capitulation_rsi_max:
+                    cap_miss.append(f"RSI {rsi_min4:.1f}" if rsi_min4 is not None else "sin RSI")
+                if vp < cfg.capitulation_vol_pct:
+                    cap_miss.append(f"Vol P{vp*100:.0f}<P{cfg.capitulation_vol_pct*100:.0f}")
+                if wick_bull < cfg.capitulation_wick_min:
+                    cap_miss.append(f"cierre {wick_bull*100:.0f}%<{cfg.capitulation_wick_min*100:.0f}%")
+                if tb is None or tb < cfg.capitulation_tb_min:
+                    cap_miss.append(f"TB {(tb or 0)*100:.0f}%<{cfg.capitulation_tb_min*100:.0f}%")
+                if cap_miss:
+                    reasons.append("Sniper: " + ", ".join(cap_miss[:3]))
+            skip_reason = " | ".join(reasons) if reasons else "filtros de score/zona/BTC"
+
         return {
             "price": float(c),
             "last_low": None if lo is None else (self.times[lo[0]].isoformat(), lo[1]),
             "last_high": None if hi is None else (self.times[hi[0]].isoformat(), hi[1]),
             "zones_below": [z.to_dict() for z in below],
             "zones_above": [z.to_dict() for z in above],
-            "vol_pct": None if np.isnan(self.vol_pct[t]) else float(self.vol_pct[t]),
+            "vol_pct": vp,
             "mom_dir": self.mom_direction(t),
             "sqz_on": bool(self.sqz[t]),
+            "ema_dist_pct": ema_dist,
+            "rsi_min4": rsi_min4,
+            "tb_ratio": tb,
+            "wick_bull": wick_bull,
+            "is_green": c > o,
+            "skip_reason": skip_reason,
         }

@@ -178,7 +178,7 @@ class LiveRunner:
         sigs = eng.evaluate(t, self.ctx, self.state, self.kinds, equity=equity)
         self.handle_signals(sigs)
         self.save_state()
-        print(status_text(eng, t, self.ctx, self.trades, self.cfg), flush=True)
+        print(status_text(eng, t, self.ctx, self.trades, self.cfg, fired=bool(sigs)), flush=True)
 
     def on_minute_close(self, k):
         ts = pd.Timestamp(int(k["t"]), unit="ms", tz="UTC")
@@ -301,7 +301,7 @@ class LiveRunner:
             self.save_state()
 
 
-def status_text(eng, t, ctx, trades, cfg):
+def status_text(eng, t, ctx, trades, cfg, fired=False):
     d = eng.describe(t, ctx)
     ts = eng.times[t] + H1
     lines = [f"\n──── {cfg.symbol} · {fmt_ts(ts)} · precio {_p(d['price'])} ────",
@@ -317,6 +317,15 @@ def status_text(eng, t, ctx, trades, cfg):
         lines.append(f"{name}: {txt or '-'}")
     vp = f"{d['vol_pct']*100:.0f}" if d["vol_pct"] is not None else "-"
     lines.append(f"Volumen 1H percentil {vp} · Squeeze {'ON' if d['sqz_on'] else 'OFF'} · momentum {d['mom_dir']}")
+    if getattr(cfg, "capitulation_enabled", False):
+        ed = f"{d['ema_dist_pct']:+.1f}%" if d.get("ema_dist_pct") is not None else "-"
+        rs = f"{d['rsi_min4']:.1f}" if d.get("rsi_min4") is not None else "-"
+        tb = f"{d['tb_ratio']*100:.0f}%" if d.get("tb_ratio") is not None else "-"
+        col = "VERDE" if d.get("is_green") else "ROJA"
+        lines.append(f"Sniper Capitulación: EMA200 {ed} (req <=-10%) · RSI_min4 {rs} (req <=25) · "
+                     f"TakerBuy {tb} (req >=53%) · Vela {col} (cierre {d.get('wick_bull', 0)*100:.0f}%)")
+    if not fired and d.get("skip_reason"):
+        lines.append(f"Filtro (Vol alto sin entrada): {d['skip_reason']}")
     act = [tr for tr in trades if not tr.is_closed]
     if act:
         for tr in act:
