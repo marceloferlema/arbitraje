@@ -21,6 +21,7 @@ import pandas as pd
 from .alerts import load_env, _p, fmt_ts
 
 DEFAULT_MODEL = "gemini-3.8-flash"
+FALLBACK_MODELS = ("gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
 
 # ---------------------------------------------------------------------------
 # QUANT SKILL / PLAYBOOK — Memoria institucional del sistema para Gemini Flash
@@ -96,20 +97,32 @@ class GeminiAnalyst:
         self._client = genai.Client(api_key=self.api_key)
         return self._client
 
-    def _ask(self, system_instruction: str, prompt: str, max_tokens: int = 650, thinking: str = "low") -> str:
+    def _ask(self, system_instruction: str, prompt: str, max_tokens: int = 650, thinking: str = "low") -> tuple:
         if not self.enabled:
-            return ""
-        print(f"[gemini] Consultando {self.model} (thinking={thinking})...", flush=True)
+            return "", self.model
         client = self._get_client()
-        interaction = client.interactions.create(
-            model=self.model,
-            system_instruction=system_instruction,
-            input=prompt,
-            generation_config={"thinking_level": thinking, "max_output_tokens": max_tokens},
-            store=False,
-            timeout=45.0,
-        )
-        return (interaction.output_text or "").strip()
+        candidates = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
+        last_err = None
+        for m in candidates:
+            try:
+                print(f"[gemini] Consultando {m} (thinking={thinking})...", flush=True)
+                interaction = client.interactions.create(
+                    model=m,
+                    system_instruction=system_instruction,
+                    input=prompt,
+                    generation_config={"thinking_level": thinking, "max_output_tokens": max_tokens},
+                    store=False,
+                    timeout=35.0,
+                )
+                txt = (interaction.output_text or "").strip()
+                if txt:
+                    return txt, m
+            except Exception as e:
+                last_err = e
+                print(f"[gemini] {m} no disponible ({e}); probando fallback...", flush=True)
+        if last_err:
+            raise last_err
+        return "", self.model
 
     # --------------------------------------------------------- Nivel 1: 4H Live
     def build_snapshot_text(self, runners) -> str:
@@ -193,10 +206,10 @@ class GeminiAnalyst:
                 "Analizá el siguiente SNAPSHOT real de los 5 pares del bot y devolvé tu lectura ejecutiva "
                 "para Telegram siguiendo estrictamente tu Playbook y formato:\n\n" + snap
             )
-            ans = self._ask(SYSTEM_LIVE, prompt, max_tokens=650)
+            ans, used_model = self._ask(SYSTEM_LIVE, prompt, max_tokens=650)
             if not ans:
                 return ""
-            return f"🧠 ANÁLISIS GEMINI ({self.model})\n{ans}"
+            return f"🧠 ANÁLISIS GEMINI ({used_model})\n{ans}"
         except Exception as e:
             print(f"[gemini] Aviso en análisis 4H: {e}")
             return ""
@@ -239,10 +252,10 @@ class GeminiAnalyst:
             else:
                 parts.append("\nEventos de trades últimos 7d: 0 (sin archivo eventos.csv aún)")
 
-            ans = self._ask(SYSTEM_WEEKLY, "\n".join(parts), max_tokens=1100)
+            ans, used_model = self._ask(SYSTEM_WEEKLY, "\n".join(parts), max_tokens=1100)
             if not ans:
                 return ""
-            return f"📊 AUDITORÍA SEMANAL GEMINI ({self.model})\n{ans}"
+            return f"📊 AUDITORÍA SEMANAL GEMINI ({used_model})\n{ans}"
         except Exception as e:
             print(f"[gemini] Aviso en auditoría semanal: {e}")
             return ""
