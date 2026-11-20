@@ -15,7 +15,7 @@ class Settings:
     # ---------------- Universo ----------------
     symbol: str = "SOLUSDT"
     btc_symbol: str = "BTCUSDT"
-    universe: tuple = ("SOLUSDT", "XRPUSDT", "BNBUSDT", "ETHUSDT", "DOGEUSDT", "BTCUSDT")
+    universe: tuple = ("SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "BTCUSDT")
 
     # ---------------- Volume Profile ----------------
     profile_lookback_days: int = 540      # ~18 meses de velas 1H para construir el perfil
@@ -43,9 +43,9 @@ class Settings:
 
     # ---------------- Volumen 1H y momentum ----------------
     vol_window_bars: int = 720            # 30 días de velas 1H para comparar volumen
-    vol_percentile_min: float = 0.85      # percentil mínimo del volumen en la vela de barrido
+    vol_percentile_min: float = 0.90      # percentil mínimo del volumen en la vela de barrido
     squeeze_confirm: bool = False         # exigir Squeeze Momentum girando desde extremo
-    wick_reject_min: float = 0.45         # cierre en el >=45% superior/inferior de la vela (o vela a favor)
+    wick_reject_min: float = 0.55         # cierre en el >=55% superior/inferior de la vela (o vela a favor)
     delta_confirm: bool = True            # exigir absorción de taker_buy_base en la ventana de barrido
     btc_filter: str = "strict"            # strict / soft / off
     btc_recent_bars: int = 6
@@ -60,12 +60,12 @@ class Settings:
     min_tp_pct: float = 0.01
     rr_min: float = 2.0
     min_score: float = 65.0
-    breakeven_r: float = 1.5              # mover SL a breakeven al alcanzar +1.5R (0 = desactivado)
-    breakeven_offset_r: float = 0.15      # colchón sobre entrada al activar BE (+0.15R cubre comisiones)
-    partial_tp_r: float = 2.0             # cerrar fracción parcial al alcanzar +2.0R (0 = desactivado)
-    partial_tp_frac: float = 0.35         # fracción a cerrar en TP1 (35 %, deja 65 % para el tramo largo)
-    trail_start_r: float = 0.0            # activar trailing stop en R (0 = desactivado; deja correr al TP/time-stop)
-    trail_distance_r: float = 1.50        # distancia del trailing stop en unidades R si se activa
+    breakeven_r: float = 0.0              # Trailing Stop activo desde +2.5R (evita cortes prematuros en BE)
+    breakeven_offset_r: float = 0.15      # colchón sobre entrada si se activa BE manualmente
+    partial_tp_r: float = 0.0             # desactivado: deja correr el 100% de los ganadores
+    partial_tp_frac: float = 0.0
+    trail_start_r: float = 2.5            # activar trailing stop al alcanzar +2.5R
+    trail_distance_r: float = 1.50        # distancia del trailing stop (1.5R)
     pre_valid_hours: int = 72             # validez de la orden limit de una pre-alerta
     max_hold_days: int = 7                # time-stop
     zone_cooldown_hours: int = 24
@@ -80,12 +80,13 @@ class Settings:
     capitulation_rr: float = 2.0              # objetivo táctico de rebote (R:R 2:1)
     capitulation_cooldown_hours: int = 48     # enfriamiento entre señales de capitulación
 
-    # ---------------- Riesgo / sizing ----------------
+    # ---------------- Riesgo / sizing (Perfil Conservador B: Max DD < 10%) ----------------
     capital_usd: float = 1000.0
-    margin_pct_min: float = 0.02
-    margin_pct_max: float = 0.05
-    leverage_max: int = 3
-    max_risk_pct: float = 0.01            # pérdida máxima por trade (1 % del capital)
+    margin_pct_min: float = 0.08
+    margin_pct_max: float = 0.20
+    leverage_max: int = 5
+    max_risk_pct: float = 0.025           # pérdida máxima por trade (2.5 % del capital)
+    max_portfolio_positions: int = 3      # escudo global: máx 3 posiciones simultáneas entre los 5 pares
     sl_tight_pct: float = 0.02            # SL <= 2 % -> margen máximo
     sl_wide_pct: float = 0.08             # SL >= 8 % -> margen mínimo
 

@@ -29,11 +29,13 @@ ENGINE_BARS = 24 * 80
 
 
 class LiveRunner:
-    def __init__(self, cfg, telegram=False, kinds=("PRE", "CONFIRMADA"), intrabar_pre=True, executor=None, chat_id=None):
+    def __init__(self, cfg, telegram=False, kinds=("PRE", "CONFIRMADA"), intrabar_pre=True,
+                 executor=None, chat_id=None, portfolio_open_fn=None):
         self.cfg = cfg
         self.kinds = tuple(kinds)
         self.intrabar_pre = intrabar_pre
         self.executor = executor
+        self.portfolio_open_fn = portfolio_open_fn
         self.ds = BinanceFutures(cfg.data_dir)
         self.notifier = Notifier(telegram=telegram, log_dir=cfg.alerts_dir, chat_id=chat_id)
         if self.executor is not None and self.executor.notifier is None:
@@ -96,14 +98,35 @@ class LiveRunner:
         os.replace(tmp, self.state_path)
 
     # --------------------------------------------------------------- señales
+    def _current_equity(self) -> float:
+        """Interés compuesto real: consulta el saldo vivo del exchange si hay ejecutor activo."""
+        if self.executor is not None and not getattr(self.executor, "dry_run", True):
+            try:
+                bal = self.executor.get_balance()
+                eq = float(bal.get("balance", 0.0))
+                if eq > 10.0:
+                    return eq
+            except Exception as e:
+                print(f"[live] Aviso consultando saldo real para sizing ({e}); usando capital_usd={self.cfg.capital_usd}")
+        return float(self.cfg.capital_usd)
+
+    def _can_open_position(self, exclude_tr=None) -> bool:
+        n_open = sum(1 for x in self.trades if x is not exclude_tr and not x.is_closed and x.status == "ABIERTA")
+        if n_open >= self.cfg.max_open_positions:
+            return False
+        max_port = getattr(self.cfg, "max_portfolio_positions", None)
+        if max_port and self.portfolio_open_fn is not None:
+            if self.portfolio_open_fn() >= max_port:
+                return False
+        return True
+
     def handle_signals(self, sigs):
         for s in sigs:
             funding = self.ds.funding_now(self.cfg.symbol)
             self.notifier.send(format_signal(s, funding))
             self.notifier.log_signal(s)
             tr = trade_from_signal(s, self.cfg)
-            n_open = sum(1 for x in self.trades if not x.is_closed and x.status == "ABIERTA")
-            can_fill = n_open < self.cfg.max_open_positions
+            can_fill = self._can_open_position()
             if tr.market_entry:
                 if can_fill:
                     self.sim._fill(tr, s.entry, s.time, maker=False)
@@ -124,8 +147,7 @@ class LiveRunner:
     def track(self, ts, o, h, l, c):
         changed = False
         for tr in [t for t in self.trades if not t.is_closed]:
-            n_open = sum(1 for x in self.trades if x is not tr and not x.is_closed and x.status == "ABIERTA")
-            can_fill = n_open < self.cfg.max_open_positions
+            can_fill = self._can_open_position(exclude_tr=tr)
             events = self.sim.step(tr, ts, o, h, l, c, ts + M1, market_open=False, can_fill=can_fill)
             for ev in events:
                 changed = True
@@ -146,7 +168,8 @@ class LiveRunner:
         self.refresh_context()
         eng = self.engine()
         t = len(eng.times) - 1
-        sigs = eng.evaluate(t, self.ctx, self.state, self.kinds, equity=self.cfg.capital_usd)
+        equity = self._current_equity()
+        sigs = eng.evaluate(t, self.ctx, self.state, self.kinds, equity=equity)
         self.handle_signals(sigs)
         self.save_state()
         print(status_text(eng, t, self.ctx, self.trades, self.cfg), flush=True)
@@ -159,7 +182,7 @@ class LiveRunner:
             eng = self.engine(self.partial_1h)
             t = len(eng.times) - 1
             now = ts + M1
-            sigs = eng.evaluate(t, self.ctx, self.state, ("PRE",), equity=self.cfg.capital_usd,
+            sigs = eng.evaluate(t, self.ctx, self.state, ("PRE",), equity=self._current_equity(),
                                 partial=True, now=now)
             self.handle_signals(sigs)
 

@@ -195,16 +195,22 @@ class TradeSimulator:
 
                     # 3. Trailing Stop en R después de trail_start_r
                     tr_start = getattr(self.cfg, "trail_start_r", 0.0) or 0.0
-                    tr_dist = getattr(self.cfg, "trail_distance_r", 1.25) or 1.25
+                    tr_dist = getattr(self.cfg, "trail_distance_r", 1.50) or 1.50
                     if tr_start > 0:
                         if long and h >= tr.fill_price + tr_start * init_risk:
                             cand_sl = h - tr_dist * init_risk
                             if cand_sl > tr.sl:
+                                prev_sl = tr.sl
                                 tr.sl = cand_sl
+                                if prev_sl > 0 and (cand_sl - prev_sl) / prev_sl >= 0.005:
+                                    tr.events.append(("TRAIL", ts, cand_sl))
                         elif (not long) and l <= tr.fill_price - tr_start * init_risk:
                             cand_sl = l + tr_dist * init_risk
                             if cand_sl < tr.sl:
+                                prev_sl = tr.sl
                                 tr.sl = cand_sl
+                                if prev_sl > 0 and (prev_sl - cand_sl) / prev_sl >= 0.005:
+                                    tr.events.append(("TRAIL", ts, cand_sl))
         return tr.events[n0:]
 
     def apply_funding(self, tr, rate, mark_price):

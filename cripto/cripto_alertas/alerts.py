@@ -83,8 +83,9 @@ def format_signal(s, funding=None):
 
 EVENT_TEXT = {
     "FILL": "✅ Orden ejecutada",
-    "TP1": "💰 TP1 parcial (+1.5R) alcanzado (cierra 50%)",
-    "BE": "🛡️ Stop Loss movido a Breakeven (+1.5R alcanzado)",
+    "TP1": "💰 TP1 parcial alcanzado",
+    "BE": "🛡️ Stop Loss movido a Breakeven",
+    "TRAIL": "📈 Trailing Stop actualizado (SL protegido)",
     "TP": "🎯 TAKE PROFIT final alcanzado",
     "SL": "🛑 STOP LOSS tocado",
     "TIEMPO": "⏱️ Time-stop: cerrar posición",

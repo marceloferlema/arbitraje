@@ -371,7 +371,7 @@ class BinanceExecutor:
         tag = f"BINANCE {'TESTNET-SIM' if self.dry_run else ('TESTNET' if self.testnet else 'LIVE')}"
 
         try:
-            if name in ("BE", "TP1"):
+            if name in ("BE", "TP1", "TRAIL"):
                 old_sl_id = orders.get("sl_order_id")
                 if old_sl_id:
                     self.cancel_algo_order(sym, old_sl_id)

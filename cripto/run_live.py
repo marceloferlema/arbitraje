@@ -322,9 +322,13 @@ def main():
         return
 
     runners = []
+    def _portfolio_open():
+        return sum(1 for rn in runners for x in rn.trades if not x.is_closed and x.status == "ABIERTA")
+
     for sym in symbols:
         r = LiveRunner(cfg.override(symbol=sym), telegram=a.telegram,
-                       kinds=kinds, intrabar_pre=not a.no_intrabar_pre, executor=executor, chat_id=a.chat_id)
+                       kinds=kinds, intrabar_pre=not a.no_intrabar_pre, executor=executor,
+                       chat_id=a.chat_id, portfolio_open_fn=_portfolio_open)
         r.bootstrap()
         threading.Thread(target=r._worker, daemon=True).start()
         threading.Thread(target=r._ws_loop, daemon=True).start()

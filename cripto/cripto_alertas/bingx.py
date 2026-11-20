@@ -338,7 +338,7 @@ class BingXExecutor:
         tag = f"BINGX {'DEMO-SIM' if self.dry_run else ('DEMO-VST' if self.demo else 'LIVE')}"
 
         try:
-            if name in ("BE", "TP1"):
+            if name in ("BE", "TP1", "TRAIL"):
                 # Cancelar SL anterior y colocar nuevo SL con tr.sl actual y cantidad remanente
                 old_sl_id = orders.get("sl_order_id")
                 if old_sl_id:
