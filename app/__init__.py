@@ -17,6 +17,13 @@ def create_app():
     init_db()
 
     app.register_blueprint(main_bp)
+
+    # API solo-lectura de Cripto Alertas (desacoplada para futura separación)
+    try:
+        from cripto.cripto_alertas.api_blueprint import cripto_api_bp
+        app.register_blueprint(cripto_api_bp)
+    except Exception as e:
+        print(f"[cripto_api] Blueprint no cargado: {e}")
     
     # Inicializamos SocketIO con la app
     socketio.init_app(app) 
