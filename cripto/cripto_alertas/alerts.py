@@ -92,6 +92,7 @@ EVENT_TEXT = {
     "CANCELADA": "❎ Setup cancelado (el precio llegó al objetivo sin ejecutar la entrada)",
     "EXPIRADA": "⌛ Orden limit expirada sin ejecutarse",
     "BLOQUEADA": "⛔ Señal no tomada (máximo de posiciones abiertas)",
+    "EXTERNO": "🔄 Posición cerrada externamente en el exchange (reconciliada)",
 }
 
 
@@ -101,7 +102,7 @@ def format_event(tr, event):
     lines = [f"{txt} – {tr.direction} {tr.signal_id}", f"{fmt_ts(ts)} · precio {_p(price)}"]
     if name == "FILL":
         lines.append(f"SL {_p(tr.sl)} · TP {_p(tr.tp)}")
-    if name in ("TP", "SL", "TIEMPO"):
+    if name in ("TP", "SL", "TIEMPO", "EXTERNO"):
         lines.append(f"Resultado: {tr.pnl:+.2f} USD ({tr.r_multiple:+.2f}R)")
     return "\n".join(lines)
 

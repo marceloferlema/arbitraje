@@ -161,11 +161,55 @@ class LiveRunner:
             self.trades = [t for t in self.trades if not t.is_closed]
             self.save_state()
 
+    def reconcile_positions(self):
+        """Verifica posiciones ABIERTAS contra el exchange; si se cerraron afuera, limpia órdenes y libera cupo."""
+        if self.executor is None or getattr(self.executor, "dry_run", True):
+            return
+        if not hasattr(self.executor, "get_position_amt"):
+            return
+        now = pd.Timestamp.now(tz="UTC")
+        changed = False
+        for tr in [t for t in self.trades if not t.is_closed and t.status == "ABIERTA"]:
+            # Evitar race condition en los primeros 60s tras abrir la orden
+            if tr.fill_time is not None and (now - pd.Timestamp(tr.fill_time)) < pd.Timedelta(seconds=60):
+                continue
+            amt = self.executor.get_position_amt(self.cfg.symbol, tr.direction)
+            if amt is None:
+                continue
+            is_open_in_exchange = (amt > 1e-12) if tr.direction == "LONG" else (amt < -1e-12)
+            if is_open_in_exchange:
+                continue
+            # Posición cerrada externamente (manual, liquidación o SL/TP en exchange)
+            n_canc = 0
+            if hasattr(self.executor, "cancel_orphan_orders"):
+                n_canc = self.executor.cancel_orphan_orders(tr, self.cfg.symbol)
+            px = float(self.h1["close"].iloc[-1]) if (getattr(self, "h1", None) is not None and len(self.h1) > 0) else float(tr.entry)
+            tr.exit_time = now
+            tr.exit_price = px
+            fill_px = float(tr.fill_price or tr.entry)
+            tr.pnl = (px - fill_px) * tr.qty * tr.sign + (tr.realized_partial_pnl or 0.0) - (tr.fees or 0.0)
+            tr.r_multiple = round(tr.pnl / tr.risk_usd, 3) if tr.risk_usd else 0.0
+            tr.status = "EXTERNO"
+            ev = ("EXTERNO", now, px)
+            tr.events.append(ev)
+            msg = format_event(tr, ev)
+            if n_canc:
+                msg += f"\n🧹 {n_canc} orden(es) huérfana(s) cancelada(s) · cupo liberado."
+            else:
+                msg += "\n🧹 Estado local sincronizado · cupo liberado."
+            self.notifier.send(msg)
+            self.notifier.log_event(tr, ev)
+            changed = True
+        if changed:
+            self.trades = [t for t in self.trades if not t.is_closed]
+            self.save_state()
+
     # ---------------------------------------------------------------- eventos
     def on_hour_close(self):
         time.sleep(3)
         self.refresh_data()
         self.refresh_context()
+        self.reconcile_positions()
         if self.h1 is None or len(self.h1) == 0:
             return
         last_bar_ts = self.h1.index[-1]
@@ -287,6 +331,7 @@ class LiveRunner:
         self.refresh_data()
         self.refresh_context(force=True)
         self.load_state()
+        self.reconcile_positions()
 
     def run(self):
         self.bootstrap()

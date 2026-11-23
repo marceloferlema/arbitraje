@@ -48,7 +48,7 @@ class Trade:
 
     @property
     def is_closed(self):
-        return self.status in ("TP", "SL", "TIEMPO", "CANCELADA", "EXPIRADA", "BLOQUEADA")
+        return self.status in ("TP", "SL", "TIEMPO", "CANCELADA", "EXPIRADA", "BLOQUEADA", "EXTERNO")
 
     def to_dict(self):
         d = asdict(self)

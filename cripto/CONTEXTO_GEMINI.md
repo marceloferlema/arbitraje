@@ -72,7 +72,14 @@
 1. **NO activar modo `PRE` (órdenes limit anticipadas):** Sufrió selección adversa severa (**83.3% SL**). Solo operar `CONFIRMADA` al cierre de vela 1H.
 2. **NO desactivar `no_counter_bias` de forma general:** Permitió 53 trades extra contra tendencia ganando exactamente el mismo PnL (`+$145.47` vs `+$145.69`) pero **duplicando el Max Drawdown** (`-8.12%` vs `-3.80%`).
 3. **SÍ mantener el Sniper de Capitulación:** Aislado sobre 3 años generó 13 señales en pánicos reales con **84.6% WR** (solo 1 SL), **PF 8.76** y **+8.88 R** (incluyendo el piso exacto de SOL en `$67.35` el `15/11/2026`).
-4. **NO re-agregar `ETHUSDT` ni `PAXGUSDT` (Oro):** `ETH` bajaba el Sharpe global; `PAXGUSDT` solo dio 5–7 trades en 16 meses (muestra insuficiente, Sharpe `0.38`).
+4. **NO re-agregar `ETHUSDT`, `PAXGUSDT` (Oro) ni Nasdaq (`QQQUSDT` / `NQ=F`):**
+   - `ETHUSDT` bajaba el Sharpe global (PF `1.28` en 2024–2026); `PAXGUSDT` solo dio 5–7 trades en 16 meses (muestra insuficiente, Sharpe `0.38`).
+   - **Nasdaq (`QQQUSDT` en Binance `TRADIFI_PERPETUAL` y `NQ=F` 2 años Yahoo Finance):** `QQQUSDT` (datos desde `2026-04-06`) generó `0` trades confirmados con parámetros default; incluso adaptando umbrales (`impulse=1.5%–2%`, `bin=0.2%`) todas las variantes en `QQQUSDT` y `NQ=F` dieron **PF < 1.0** (`0.00`–`0.84`) y `avg_R` negativo.
+   - **Pares cripto descartados en screening (`2024-01` → `2026-11`, `CONFIRMADA`):** `AVAXUSDT` (PF `0.24`, `-$207.91`), `ADAUSDT` (PF `0.38`, `-$253.43`), `NEARUSDT` (PF `0.48`, `-$165.84`), `LINKUSDT` (PF `0.80`, `-$76.89`), `APTUSDT` (PF `0.85`, `-$54.32`), `SUIUSDT` (PF `1.09`), `DOTUSDT` (PF `1.27`), `TRXUSDT` (solo 7 trades).
+   - **Candidatos cripto potenciales validados en cartera (intravela 1m, aún no activados en `universe`):**
+     - **`LTCUSDT` (Top 1):** 19 trades, WR `47.4%`, Avg R `+0.604`, PF `2.09`, `+$305.26` (`DD -11.59%`). En cartera 6p: `+133.81%`, PF `1.97`, Sharpe `1.72`, Max DD `-10.65%`.
+     - **`UNIUSDT` (Top 2 agresivo):** 27 trades, WR `51.9%`, Avg R `+0.481`, PF `1.85`, `+$332.42` (`DD -22.39%`). En cartera 6p: `+136.53%`, PF `1.92`, Sharpe `1.64`, Max DD `-13.90%`.
+     - **`AAVEUSDT` (defensivo):** 18 trades, PF `1.48`, `+$140.20`, Max DD `-9.51%`.
 5. **NO volver al `TP1` parcial ni subir a `10x`:** `TP1` recortaba los ganadores de cola larga; `10x` apenas sumaba +4% sobre `5x` duplicando el riesgo de liquidación.
 6. **NUNCA modificar parámetros en producción sin validación Walk-Forward previa** sobre 3 años respetando el techo `Max DD <= -10%`.
 

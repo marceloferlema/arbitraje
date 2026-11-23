@@ -239,6 +239,58 @@ class BinanceExecutor:
             print(f"[binance] Aviso cancelando algo orden {algo_id} en {symbol}: {e}")
             return False
 
+    def get_position_amt(self, symbol: str, direction: str = None):
+        """Devuelve positionAmt firmado del exchange (0.0 si cerrada; None si dry_run o error)."""
+        if self.dry_run:
+            return None
+        sym = symbol.upper().strip()
+        try:
+            rows = self._request("GET", "/fapi/v2/positionRisk", {"symbol": sym})
+            if not isinstance(rows, list):
+                return None
+            target_side = (direction.upper() if (self._dual_side and direction) else "BOTH")
+            for r in rows:
+                if r.get("symbol") != sym:
+                    continue
+                if r.get("positionSide", "BOTH") == target_side:
+                    return float(r.get("positionAmt", 0.0))
+            return 0.0
+        except Exception as e:
+            print(f"[binance] Aviso consultando posición {sym}: {e}")
+            return None
+
+    def cancel_orphan_orders(self, tr, symbol: str) -> int:
+        """Cancela órdenes locales registradas y cualquier algo-orden condicional remanente en el par."""
+        if self.dry_run:
+            return 0
+        sym = symbol.upper().strip()
+        canceled = 0
+        seen_algo = set()
+        orders = getattr(tr, "exchange_orders", None) or {}
+        if orders.get("entry_order_id"):
+            if self.cancel_order(sym, orders["entry_order_id"]):
+                canceled += 1
+        for k in ("sl_order_id", "tp1_order_id", "tp2_order_id"):
+            aid = orders.get(k)
+            if aid:
+                seen_algo.add(str(aid))
+                if self.cancel_algo_order(sym, aid):
+                    canceled += 1
+        try:
+            open_algos = self._request("GET", "/fapi/v1/openAlgoOrders", {"symbol": sym})
+            target_side = (tr.direction.upper() if self._dual_side else "BOTH")
+            if isinstance(open_algos, list):
+                for ao in open_algos:
+                    aid = str(ao.get("algoId", ""))
+                    if not aid or aid in seen_algo:
+                        continue
+                    if ao.get("positionSide", "BOTH") == target_side:
+                        if self.cancel_algo_order(sym, aid):
+                            canceled += 1
+        except Exception as e:
+            print(f"[binance] Aviso limpiando algo órdenes huérfanas en {sym}: {e}")
+        return canceled
+
     def on_signal(self, s, tr, cfg) -> dict:
         """
         Ejecuta una señal nueva en Binance Futures:
