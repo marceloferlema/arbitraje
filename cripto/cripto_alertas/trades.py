@@ -193,9 +193,13 @@ class TradeSimulator:
                                 tr.be_moved = True
                                 tr.events.append(("BE", ts, new_sl))
 
-                    # 3. Trailing Stop en R después de trail_start_r
-                    tr_start = getattr(self.cfg, "trail_start_r", 0.0) or 0.0
-                    tr_dist = getattr(self.cfg, "trail_distance_r", 1.50) or 1.50
+                    # 3. Trailing Stop en R (parámetros propios para Sniper de Capitulación vs barrido normal)
+                    if "-CAP-" in str(tr.signal_id):
+                        tr_start = getattr(self.cfg, "capitulation_trail_start_r", 0.0) or 0.0
+                        tr_dist = getattr(self.cfg, "capitulation_trail_distance_r", 0.70) or 0.70
+                    else:
+                        tr_start = getattr(self.cfg, "trail_start_r", 0.0) or 0.0
+                        tr_dist = getattr(self.cfg, "trail_distance_r", 1.50) or 1.50
                     if tr_start > 0:
                         if long and h >= tr.fill_price + tr_start * init_risk:
                             cand_sl = h - tr_dist * init_risk

@@ -29,7 +29,7 @@
 | | `delta_confirm` | `True` | Exige absorción agresiva en `taker_buy_base`. |
 | | `no_counter_bias` | `True` | Obligatorio operar a favor del sesgo 1D (salvo Sniper). |
 | | `btc_filter` | `"strict"` | Evita operar altcoins contra movimientos bruscos de BTC. |
-| **Sniper Capitulación** | `capitulation_enabled` | `True` | Única excepción LONG contra tendencia: `EMA200 <= -10%`, `RSI_min4 <= 25`, `Vol >= P95`, vela verde cierre `>= 75%`, `TakerBuy >= 53%`, objetivo táctico `2:1`, `cooldown 48h`, `max_hold 3d`. |
+| **Sniper Capitulación** | `capitulation_enabled` | `True` | Única excepción LONG contra tendencia: `EMA200 <= -10%`, `RSI_min4 <= 25`, `Vol >= P95`, vela verde cierre `>= 75%`, `TakerBuy >= 53%`, objetivo táctico `2:1`, trailing stop desde `+1.2R` (dist `0.70R`), `cooldown 48h`, `max_hold 3d`. |
 | **Salidas** | `breakeven_r` / `partial_tp_r` | `0.0` / `0.0` | Desactivados: el Walk-Forward demostró que `TP1` parcial cortaba los mejores ganadores. |
 | | `trail_start_r` / `trail_distance_r` | `2.5` / `1.5` | Trailing Stop activo desde `+2.5R`; sincroniza `STOP_MARKET` en Binance cuando mejora `>= 0.5%`. |
 | | `max_hold_days` | `7` | Óptimo verificado vs 5d, 10d y 14d. |

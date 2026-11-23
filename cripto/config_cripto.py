@@ -78,6 +78,8 @@ class Settings:
     capitulation_wick_min: float = 0.75       # cierre en el >= 75 % superior de la vela
     capitulation_tb_min: float = 0.53         # compras agresivas (taker_buy_base) >= 53 %
     capitulation_rr: float = 2.0              # objetivo táctico de rebote (R:R 2:1)
+    capitulation_trail_start_r: float = 1.2   # activar trailing stop del Sniper al alcanzar +1.2R
+    capitulation_trail_distance_r: float = 0.70  # distancia del trailing stop del Sniper (asegura >= +0.5R)
     capitulation_cooldown_hours: int = 48     # enfriamiento entre señales de capitulación
 
     # ---------------- Riesgo / sizing (Perfil Conservador B: Max DD < 10%) ----------------
