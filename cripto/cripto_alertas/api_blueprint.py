@@ -30,6 +30,35 @@ from cripto_alertas.storage import BotStorage
 cripto_api_bp = Blueprint("cripto_api", __name__, url_prefix="/api/cripto")
 
 ALLOWED_TABLES = ("signals", "events", "near_misses", "ai_reports")
+VALID_ENVS = ("live", "testnet", "paper", "legacy")
+
+
+def _available_envs() -> list:
+    base = DEFAULT.alerts_dir
+    found = []
+    for name in ("live", "testnet", "paper"):
+        if os.path.exists(os.path.join(base, name, "cripto_bot.db")):
+            found.append(name)
+    if os.path.exists(os.path.join(base, "cripto_bot.db")):
+        found.append("legacy")
+    return found
+
+
+def _resolve_env_dir():
+    """Resuelve (env_name, alerts_dir) desde ?env=live|testnet|paper|legacy o autodetección."""
+    base = DEFAULT.alerts_dir
+    req_env = (request.args.get("env") or "").strip().lower()
+    if req_env:
+        if req_env not in VALID_ENVS:
+            return None, None, (jsonify({"error": f"env no válido. Válidos: {list(VALID_ENVS)}"}), 400)
+        target_dir = base if req_env == "legacy" else os.path.join(base, req_env)
+        return req_env, target_dir, None
+    # Autodetección priorizando live -> testnet -> paper -> legacy
+    for name in ("live", "testnet", "paper"):
+        cand = os.path.join(base, name)
+        if os.path.exists(os.path.join(cand, "cripto_bot.db")):
+            return name, cand, None
+    return "legacy", base, None
 
 
 def _get_api_token() -> str:
@@ -110,16 +139,22 @@ def api_status():
     err = _check_auth()
     if err:
         return err
-    st = BotStorage(DEFAULT.alerts_dir)
+    env_name, alerts_dir, env_err = _resolve_env_dir()
+    if env_err:
+        return env_err
+    st = BotStorage(alerts_dir) if os.path.exists(os.path.join(alerts_dir, "cripto_bot.db")) else None
     counts = {}
     for tbl in ALLOWED_TABLES:
-        r = _query_rows(st.db_path, f"SELECT COUNT(*) AS n FROM {tbl}")
+        r = _query_rows(st.db_path, f"SELECT COUNT(*) AS n FROM {tbl}") if st else []
         counts[tbl] = r[0]["n"] if r else 0
-    latest_ai = _query_rows(st.db_path, "SELECT time, kind, model, content FROM ai_reports ORDER BY id DESC LIMIT 1")
+    latest_ai = (_query_rows(st.db_path, "SELECT time, kind, model, content FROM ai_reports ORDER BY id DESC LIMIT 1")
+                 if st else [])
     return jsonify({
         "ok": True,
+        "env": env_name,
+        "available_envs": _available_envs(),
         "counts": counts,
-        "open_positions": _read_open_positions(DEFAULT.alerts_dir),
+        "open_positions": _read_open_positions(alerts_dir),
         "latest_ai_report": latest_ai[0] if latest_ai else None,
         "config": _safe_config_summary(),
     })
@@ -130,13 +165,19 @@ def api_audit():
     err = _check_auth()
     if err:
         return err
+    env_name, alerts_dir, env_err = _resolve_env_dir()
+    if env_err:
+        return env_err
     try:
         days = max(1, min(365, int(request.args.get("days", 30))))
     except ValueError:
         days = 30
     fmt = request.args.get("format", "json").lower()
-    st = BotStorage(DEFAULT.alerts_dir)
+    db_path = os.path.join(alerts_dir, "cripto_bot.db")
     if fmt in ("md", "markdown", "text"):
+        if not os.path.exists(db_path):
+            return Response(f"# Sin datos todavía para entorno `{env_name}`\n", mimetype="text/markdown; charset=utf-8")
+        st = BotStorage(alerts_dir)
         md = st.export_audit_markdown(days=days, cfg=DEFAULT)
         return Response(md, mimetype="text/markdown; charset=utf-8")
 
@@ -144,13 +185,15 @@ def api_audit():
     cutoff = (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)).isoformat()
     return jsonify({
         "ok": True,
+        "env": env_name,
+        "available_envs": _available_envs(),
         "days": days,
         "config": _safe_config_summary(),
-        "open_positions": _read_open_positions(DEFAULT.alerts_dir),
-        "signals": _query_rows(st.db_path, "SELECT * FROM signals WHERE time >= ? ORDER BY time DESC LIMIT 200", (cutoff,)),
-        "events": _query_rows(st.db_path, "SELECT * FROM events WHERE time >= ? ORDER BY time DESC LIMIT 300", (cutoff,)),
-        "near_misses": _query_rows(st.db_path, "SELECT * FROM near_misses WHERE time >= ? ORDER BY time DESC LIMIT 300", (cutoff,)),
-        "ai_reports": _query_rows(st.db_path, "SELECT * FROM ai_reports WHERE time >= ? ORDER BY time DESC LIMIT 30", (cutoff,)),
+        "open_positions": _read_open_positions(alerts_dir),
+        "signals": _query_rows(db_path, "SELECT * FROM signals WHERE time >= ? ORDER BY time DESC LIMIT 200", (cutoff,)),
+        "events": _query_rows(db_path, "SELECT * FROM events WHERE time >= ? ORDER BY time DESC LIMIT 300", (cutoff,)),
+        "near_misses": _query_rows(db_path, "SELECT * FROM near_misses WHERE time >= ? ORDER BY time DESC LIMIT 300", (cutoff,)),
+        "ai_reports": _query_rows(db_path, "SELECT * FROM ai_reports WHERE time >= ? ORDER BY time DESC LIMIT 30", (cutoff,)),
     })
 
 
@@ -159,13 +202,16 @@ def api_table(name: str):
     err = _check_auth()
     if err:
         return err
+    env_name, alerts_dir, env_err = _resolve_env_dir()
+    if env_err:
+        return env_err
     if name not in ALLOWED_TABLES:
         return jsonify({"error": f"Tabla no permitida. Válidas: {list(ALLOWED_TABLES)}"}), 400
     try:
         limit = max(1, min(500, int(request.args.get("limit", 50))))
     except ValueError:
         limit = 50
-    st = BotStorage(DEFAULT.alerts_dir)
+    db_path = os.path.join(alerts_dir, "cripto_bot.db")
     order_col = "time" if name == "signals" else "id"
-    rows = _query_rows(st.db_path, f"SELECT * FROM {name} ORDER BY {order_col} DESC LIMIT ?", (limit,))
-    return jsonify({"ok": True, "table": name, "count": len(rows), "rows": rows})
+    rows = _query_rows(db_path, f"SELECT * FROM {name} ORDER BY {order_col} DESC LIMIT ?", (limit,))
+    return jsonify({"ok": True, "env": env_name, "table": name, "count": len(rows), "rows": rows})

@@ -123,6 +123,8 @@ def load_env():
     for k in ("TELEGRAM_TOKEN", "CHAT_ID", "CRIPTO_TELEGRAM_TOKEN", "CRIPTO_CHAT_ID",
               "BINGX_API_KEY", "BINGX_SECRET", "BINGX_SECRET_KEY",
               "BINANCE_API_KEY", "BINANCE_API_SECRET", "BINANCE_SECRET",
+              "BINANCE_TESTNET_API_KEY", "BINANCE_TESTNET_API_SECRET",
+              "BINANCE_LIVE_API_KEY", "BINANCE_LIVE_API_SECRET",
               "GEMINI_API_KEY", "GEMINI_MODEL", "CRIPTO_API_TOKEN"):
         if os.getenv(k):
             env[k] = os.getenv(k)

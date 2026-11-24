@@ -44,6 +44,8 @@ def parse():
     ap.add_argument("--test-bingx", action="store_true", help="Probar conexión a BingX Demo (VST), contratos y flujo de órdenes")
     ap.add_argument("--binance-testnet", action="store_true", help="Ejecutar órdenes automáticamente en Binance Futures Testnet")
     ap.add_argument("--binance-live", action="store_true", help="Ejecutar órdenes automáticamente en Binance Futures Real (USDT)")
+    ap.add_argument("--env", choices=["auto", "live", "testnet", "paper"], default="auto",
+                    help="Subcarpeta aislada en alerts_log/ (default: auto según --binance-live/--binance-testnet)")
     ap.add_argument("--test-binance", action="store_true", help="Probar conexión a Binance Futures Testnet y contratos")
     ap.add_argument("--test-gemini", action="store_true", help="Probar análisis cuantitativo en vivo con Gemini")
     ap.add_argument("--weekly-audit", action="store_true", help="Ejecutar auditoría semanal de resultados con Gemini")
@@ -317,6 +319,19 @@ def main():
         n.send("🟢 Prueba de conexión exitosa — Bot de Alertas Cripto (Barrido de Liquidez + Volume Profile) activo en su propio chat.")
         return
     cfg = DEFAULT.override(min_score=a.min_score, btc_filter=a.btc_filter, breakeven_r=a.breakeven_r)
+    if a.env == "auto":
+        if a.binance_live or a.bingx_live:
+            run_env = "live"
+        elif a.binance_testnet or a.bingx_demo or a.bingx_dry_run:
+            run_env = "testnet"
+        else:
+            run_env = "paper"
+    else:
+        run_env = a.env
+    env_alerts_dir = os.path.join(cfg.alerts_dir, run_env)
+    os.makedirs(env_alerts_dir, exist_ok=True)
+    cfg = cfg.override(alerts_dir=env_alerts_dir)
+    print(f"[env] Entorno aislado: {run_env.upper()} -> {cfg.alerts_dir}")
     if a.export_audit:
         from cripto_alertas.storage import BotStorage
         st = BotStorage(cfg.alerts_dir)

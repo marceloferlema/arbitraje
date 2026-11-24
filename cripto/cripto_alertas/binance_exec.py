@@ -47,9 +47,14 @@ class BinanceExecutor:
         self.testnet = testnet
         self.base_url = TESTNET_URL if testnet else LIVE_URL
         self.unit = "USDT (Testnet)" if testnet else "USDT"
-        self.api_key = api_key or env.get("BINANCE_API_KEY") or ""
-        self.api_secret = (api_secret or env.get("BINANCE_API_SECRET")
-                           or env.get("BINANCE_SECRET") or "")
+        if testnet:
+            self.api_key = api_key or env.get("BINANCE_TESTNET_API_KEY") or env.get("BINANCE_API_KEY") or ""
+            self.api_secret = (api_secret or env.get("BINANCE_TESTNET_API_SECRET")
+                               or env.get("BINANCE_API_SECRET") or env.get("BINANCE_SECRET") or "")
+        else:
+            self.api_key = api_key or env.get("BINANCE_LIVE_API_KEY") or env.get("BINANCE_API_KEY") or ""
+            self.api_secret = (api_secret or env.get("BINANCE_LIVE_API_SECRET")
+                               or env.get("BINANCE_API_SECRET") or env.get("BINANCE_SECRET") or "")
         self.dry_run = dry_run or not (self.api_key and self.api_secret)
         self.notifier = notifier
         self.session = requests.Session()
