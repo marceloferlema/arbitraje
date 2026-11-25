@@ -20,10 +20,10 @@
 
 | Categoría | Parámetro | Valor Activo | Justificación Validada |
 | :--- | :--- | :---: | :--- |
-| **Universo** | `universe` | `SOL, XRP, BNB, DOGE, BTC` | 5 pares líquidos; `ETHUSDT` y `PAXGUSDT` descartados por menor Sharpe/muestra. |
+| **Universo** | `universe` | `SOL, XRP, BNB, DOGE, BTC, LTC, AAVE` | 7 pares líquidos validados en Walk-Forward (`+39%` más trades, PF `2.01`, Sharpe `1.83`); `ETHUSDT`, `PAXGUSDT`, Nasdaq y otras alts descartados. |
 | **Volume Profile** | `profile_lookback_days` | `540` (~18 meses) | Sin lookahead (`h1.index < day`). |
 | **Estructura 1H** | `pivot_len_1h` / `sweep_bars` | `6` / `4` | Captura swings intradía y ventana de barrido + reclaim. |
-| **Filtros Entrada** | `min_score` | `65.0` | Balance óptimo entre frecuencia y calidad. |
+| **Filtros Entrada** | `min_score` / `rr_min` | `65.0` / `1.6` | Balance óptimo validado en Walk-Forward (`rr_min 1.6` mejora IS y OOS y baja Max DD). |
 | | `vol_percentile_min` | `0.90` (P90) | Optimizado en Fase 1 (subió PF de 1.66 → 1.82). |
 | | `wick_reject_min` | `0.55` (55%) | Exige rechazo fuerte de mecha o cierre a favor. |
 | | `delta_confirm` | `True` | Exige absorción agresiva en `taker_buy_base`. |

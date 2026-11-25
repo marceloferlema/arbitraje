@@ -15,7 +15,7 @@ class Settings:
     # ---------------- Universo ----------------
     symbol: str = "SOLUSDT"
     btc_symbol: str = "BTCUSDT"
-    universe: tuple = ("SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "BTCUSDT")
+    universe: tuple = ("SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "BTCUSDT", "LTCUSDT", "AAVEUSDT")
 
     # ---------------- Volume Profile ----------------
     profile_lookback_days: int = 540      # ~18 meses de velas 1H para construir el perfil
@@ -58,7 +58,7 @@ class Settings:
     sl_buffer_atr_d: float = 0.35         # SL = borde de la franja/mecha -/+ 0.35 ATR diario
     tp_buffer_pct: float = 0.003          # TP un poquito antes de la zona objetivo
     min_tp_pct: float = 0.01
-    rr_min: float = 2.0
+    rr_min: float = 1.6
     min_score: float = 65.0
     breakeven_r: float = 0.0              # Trailing Stop activo desde +2.5R (evita cortes prematuros en BE)
     breakeven_offset_r: float = 0.15      # colchón sobre entrada si se activa BE manualmente
